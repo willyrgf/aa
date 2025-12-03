@@ -1,3 +1,5 @@
+mod four_bits;
+
 fn main() {
-    println!("Hello, world!");
+    unimplemented!()
 }
