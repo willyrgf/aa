@@ -1,8 +1,13 @@
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashSet};
+use std::env;
+use std::fs::File;
+use std::io::Write;
+use std::sync::{Arc, Mutex};
+use std::thread;
 use std::time::Instant;
 
-type State = u16;
+type State = u8;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 struct Literal {
@@ -15,11 +20,11 @@ type Cnf = Vec<Clause>;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 struct Term {
-    bits: u16,
-    mask: u16, // 1 bits are don't-cares
+    bits: u8,
+    mask: u8, // 1 bits are don't-cares
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 struct Stats {
     trials: usize,
     found: usize,
@@ -31,6 +36,7 @@ struct Stats {
     length_sum: usize,
     clauses_sum: usize,
     ext_sum: usize,
+    nec_sum: usize,
 }
 
 impl Stats {
@@ -40,6 +46,7 @@ impl Stats {
             self.found += 1;
             let (tp, fp, fn_) = accuracy_on_dn(&cnf, universe, dn, target);
             let weak = weakness(&cnf, universe);
+            let nec = necessary_clauses(&cnf, universe, dn, target).len();
             if (tp - 1.0).abs() < f32::EPSILON {
                 self.perfect += 1;
             }
@@ -50,34 +57,58 @@ impl Stats {
             self.length_sum += description_length(&cnf);
             self.clauses_sum += cnf.len();
             self.ext_sum += weak;
+            self.nec_sum += nec;
         }
+    }
+
+    fn merge(&mut self, other: Stats) {
+        self.trials += other.trials;
+        self.found += other.found;
+        self.perfect += other.perfect;
+        self.tp_sum += other.tp_sum;
+        self.fp_sum += other.fp_sum;
+        self.fn_sum += other.fn_sum;
+        self.weakness_sum += other.weakness_sum;
+        self.length_sum += other.length_sum;
+        self.clauses_sum += other.clauses_sum;
+        self.ext_sum += other.ext_sum;
+        self.nec_sum += other.nec_sum;
     }
 }
 
+// SplitMix64 PRNG - better quality than LCG
 #[derive(Clone)]
-struct Lcg {
+struct SplitMix64 {
     state: u64,
 }
 
-impl Lcg {
+impl SplitMix64 {
     fn new(seed: u64) -> Self {
         Self { state: seed }
     }
 
+    fn next_u64(&mut self) -> u64 {
+        self.state = self.state.wrapping_add(0x9e3779b97f4a7c15);
+        let mut z = self.state;
+        z = (z ^ (z >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94d049bb133111eb);
+        z ^ (z >> 31)
+    }
+
     fn next_u32(&mut self) -> u32 {
-        self.state = self.state
-            .wrapping_mul(6364136223846793005)
-            .wrapping_add(1);
-        (self.state >> 32) as u32
+        (self.next_u64() >> 32) as u32
     }
 
     fn next_usize(&mut self, max: usize) -> usize {
-        (self.next_u32() as usize) % max
+        if max == 0 {
+            return 0;
+        }
+        (self.next_u64() as usize) % max
     }
 }
 
-// Sample k distinct elements from dn using a simple Fisher–Yates shuffle driven by the LCG.
-fn sample_dk(dn: &[State], k: usize, rng: &mut Lcg) -> Vec<State> {
+// Sample k distinct elements from dn using a simple Fisher–Yates shuffle driven by the RNG.
+fn sample_dk(dn: &[State], k: usize, rng: &mut SplitMix64) -> Vec<State> {
     let n = dn.len();
     let k = k.min(n);
     let mut indices: Vec<usize> = (0..n).collect();
@@ -88,12 +119,15 @@ fn sample_dk(dn: &[State], k: usize, rng: &mut Lcg) -> Vec<State> {
     indices[..k].iter().map(|&idx| dn[idx]).collect()
 }
 
-// Bit layout: bits 0-2 = x (3 bits), 3-5 = y (3 bits), 6-11 = z (6 bits).
+// Bit layout: bits 0-1 = x (2 bits), 2-3 = y (2 bits), 4-7 = z (4 bits).
 fn encode_xy_z(x: u8, y: u8, z: u8) -> State {
-    let mut s: u16 = 0;
-    s |= ((x & 0b111) as u16) << 0;
-    s |= ((y & 0b111) as u16) << 3;
-    s |= ((z & 0b111111) as u16) << 6;
+    let x = x & 0b11;
+    let y = y & 0b11;
+    let z = z & 0b1111;
+    let mut s: u8 = 0;
+    s |= x << 0;
+    s |= y << 2;
+    s |= z << 4;
     s
 }
 
@@ -101,28 +135,38 @@ fn encode_xy_z(x: u8, y: u8, z: u8) -> State {
 enum Task {
     Addition,
     Multiplication,
+    Xor,
+    Random { seed: u64 },
 }
 
 impl Task {
-    fn label(&self) -> &'static str {
+    fn label(&self) -> String {
         match self {
-            Task::Addition => "addition",
-            Task::Multiplication => "multiplication",
+            Task::Addition => "addition".to_string(),
+            Task::Multiplication => "multiplication".to_string(),
+            Task::Xor => "xor".to_string(),
+            Task::Random { seed } => format!("random_seed{}", seed),
         }
     }
 
     fn operation(&self, x: u8, y: u8) -> u8 {
         match self {
-            Task::Addition => (x + y) & 0b111111,
-            Task::Multiplication => ((x as u16 * y as u16) & 0b111111) as u8,
+            Task::Addition => (x + y) & 0b1111,
+            Task::Multiplication => ((x as u16 * y as u16) & 0b1111) as u8,
+            Task::Xor => (x ^ y) & 0b1111,
+            Task::Random { seed } => {
+                // Generate lookup table deterministically from seed
+                let mut rng = SplitMix64::new(*seed + (x as u64) * 256 + (y as u64));
+                (rng.next_u32() & 0b1111) as u8
+            }
         }
     }
 }
 
 fn generate_dn(task: Task) -> Vec<State> {
     let mut dn = Vec::new();
-    for x in 0u8..8 {
-        for y in 0u8..8 {
+    for x in 0u8..4 {
+        for y in 0u8..4 {
             let z = task.operation(x, y);
             dn.push(encode_xy_z(x, y, z));
         }
@@ -130,7 +174,7 @@ fn generate_dn(task: Task) -> Vec<State> {
     dn
 }
 
-fn popcount16(x: u16) -> u32 {
+fn popcount8(x: u8) -> u32 {
     x.count_ones()
 }
 
@@ -156,13 +200,13 @@ fn term_covers(term: Term, state: State) -> bool {
 }
 
 fn implicant_literal_count(term: Term) -> usize {
-    12usize - popcount16(term.mask) as usize
+    8usize - popcount8(term.mask) as usize // 8 bits total (2+2+4)
 }
 
 fn qm_prime_implicants(false_states: &[State]) -> Vec<Term> {
-    let mut groups: Vec<Vec<Term>> = vec![Vec::new(); 13];
+    let mut groups: Vec<Vec<Term>> = vec![Vec::new(); 9]; // 0-8 bits for u8
     for &s in false_states {
-        let ones = popcount16(s) as usize;
+        let ones = popcount8(s) as usize;
         groups[ones].push(Term { bits: s, mask: 0 });
     }
 
@@ -170,7 +214,7 @@ fn qm_prime_implicants(false_states: &[State]) -> Vec<Term> {
     let mut current = groups;
 
     loop {
-        let mut next: Vec<Vec<Term>> = vec![Vec::new(); 13];
+        let mut next: Vec<Vec<Term>> = vec![Vec::new(); 9];
         let mut combined: HashSet<Term> = HashSet::new();
         let mut any_combined = false;
 
@@ -181,7 +225,7 @@ fn qm_prime_implicants(false_states: &[State]) -> Vec<Term> {
                         any_combined = true;
                         combined.insert(a);
                         combined.insert(b);
-                        let ones = popcount16(c.bits & !c.mask) as usize;
+                        let ones = popcount8(c.bits & !c.mask) as usize;
                         if !next[ones].contains(&c) {
                             next[ones].push(c);
                         }
@@ -296,9 +340,7 @@ fn select_implicants(false_states: &[State], primes: &[Term]) -> Vec<Term> {
             let mut new_remaining = Vec::new();
             let mut new_coverage = Vec::new();
             for (idx, &mt) in remaining.iter().enumerate() {
-                let covered = selected
-                    .iter()
-                    .any(|&pi| term_covers(primes[pi], mt));
+                let covered = selected.iter().any(|&pi| term_covers(primes[pi], mt));
                 if covered {
                     continue;
                 }
@@ -331,7 +373,7 @@ fn select_implicants(false_states: &[State], primes: &[Term]) -> Vec<Term> {
 
 fn term_to_clause(term: Term) -> Clause {
     let mut clause = Vec::new();
-    for var in 0u8..12 {
+    for var in 0u8..8 {
         if (term.mask >> var) & 1 == 1 {
             continue;
         }
@@ -380,7 +422,8 @@ fn simplified_cnf(positives: &[State], universe: &[State], target: u8) -> Cnf {
     let primes = qm_prime_implicants(&false_states);
     let implicants = select_implicants(&false_states, &primes);
     let mut cnf: Cnf = implicants.into_iter().map(term_to_clause).collect();
-    absorb_clauses(&mut cnf);
+    // Disable absorb_clauses to keep redundant clauses, providing more drop candidates
+    // absorb_clauses(&mut cnf);
 
     cnf.retain(|clause| clause.iter().any(|lit| lit.var == target));
     cnf
@@ -418,38 +461,152 @@ enum Objective {
     Simplicity,
 }
 
+fn cnf_to_json(cnf: &Cnf) -> String {
+    let mut clauses = Vec::new();
+    for clause in cnf {
+        let lits: Vec<String> = clause
+            .iter()
+            .map(|lit| {
+                format!(
+                    r#"{{"var":{},"neg":{}}}"#,
+                    lit.var,
+                    if lit.neg { "true" } else { "false" }
+                )
+            })
+            .collect();
+        clauses.push(format!("[{}]", lits.join(",")));
+    }
+    format!(r#"{{"clauses":[{}]}}"#, clauses.join(","))
+}
+
+fn validate_mode() {
+    println!("=== CNF Validation Mode ===");
+    let universe: Vec<State> = (0u8..=255).collect();
+    let dn = generate_dn(Task::Multiplication);
+    let dk: Vec<State> = dn.iter().copied().take(6).collect();
+    let target = 4u8;
+
+    println!("Generating CNF for multiplication task:");
+    println!("  |D_k| = {}", dk.len());
+    println!("  target bit = {}", target);
+
+    let cnf = simplified_cnf(&dk, &universe, target);
+    println!("  Generated {} clauses", cnf.len());
+
+    let json = cnf_to_json(&cnf);
+    let filename = "rust_cnf.json";
+    let mut file = File::create(filename).expect("Failed to create output file");
+    file.write_all(json.as_bytes())
+        .expect("Failed to write JSON");
+
+    println!("\nCNF written to: {}", filename);
+    println!("\nTo validate against SymPy:");
+    println!("  python3 validate_cnf.py {}", filename);
+}
+
 fn main() {
-    let universe: Vec<State> = (0u16..4096).collect();
-    let ks = [6usize, 10, 14];
-    let trials_per_k = 200;
-    let tasks = [Task::Addition, Task::Multiplication];
+    // Check for --validate flag
+    let args: Vec<String> = env::args().collect();
+    if args.len() > 1 && args[1] == "--validate" {
+        validate_mode();
+        return;
+    }
+
+    let universe: Vec<State> = (0u8..=255).collect(); // 2^8 = 256 states for 8-bit space
+    let ks = [6usize, 10];
+    let trials_per_k = 100; // Increased for stable statistics
+    let tasks = [
+        Task::Multiplication, // Test multiplication first (biggest gap in Bennett)
+        Task::Addition,
+        Task::Xor,
+        //Task::Random { seed: 42 },
+    ];
     let base_seed = 123_456_789;
+    let num_threads = thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4);
 
     println!("Universe size: {}", universe.len());
     println!("Trials per k : {}", trials_per_k);
+    println!("Threads      : {}", num_threads);
 
     for (task_idx, task) in tasks.iter().enumerate() {
         let dn = generate_dn(*task);
-        let mut rng = Lcg::new(base_seed + task_idx as u64);
+        let mut rng = SplitMix64::new(base_seed + task_idx as u64);
         println!("\n-- Task: {} --", task.label());
         println!("D_n size     : {}", dn.len());
 
         for &k in &ks {
-            let mut w_stats = Stats::default();
-            let mut s_stats = Stats::default();
-
+            // Pre-generate all trial parameters (deterministic)
+            let mut trial_params = Vec::new();
             for _ in 0..trials_per_k {
-                let target = rng.next_usize(12) as u8;
+                // Restrict target to output bits (4-7, i.e., z bits in 8-bit layout)
+                let target = 4 + rng.next_usize(4) as u8;
                 let dk = sample_dk(&dn, k, &mut rng);
-                let base_cnf = simplified_cnf(&dk, &universe, target);
-
-                let w_policy = best_first_policy(&base_cnf, &universe, &dk, target, Objective::Weakness, 4, 5000);
-                let s_policy =
-                    best_first_policy(&base_cnf, &universe, &dk, target, Objective::Simplicity, 4, 5000);
-
-                w_stats.update(w_policy, &universe, &dn, target);
-                s_stats.update(s_policy, &universe, &dn, target);
+                trial_params.push((target, dk));
             }
+
+            // Parallel execution
+            let universe = Arc::new(universe.clone());
+            let dn = Arc::new(dn.clone());
+            let w_stats = Arc::new(Mutex::new(Stats::default()));
+            let s_stats = Arc::new(Mutex::new(Stats::default()));
+
+            let chunk_size = (trials_per_k + num_threads - 1) / num_threads;
+            let mut handles = vec![];
+
+            for chunk in trial_params.chunks(chunk_size) {
+                let chunk = chunk.to_vec();
+                let universe = Arc::clone(&universe);
+                let dn = Arc::clone(&dn);
+                let w_stats = Arc::clone(&w_stats);
+                let s_stats = Arc::clone(&s_stats);
+
+                let handle = thread::spawn(move || {
+                    let mut local_w_stats = Stats::default();
+                    let mut local_s_stats = Stats::default();
+
+                    for (target, dk) in chunk {
+                        let base_cnf = simplified_cnf(&dk, &universe, target);
+
+                        let w_policy = best_first_policy(
+                            &base_cnf,
+                            &universe,
+                            &dk,
+                            target,
+                            Objective::Weakness,
+                            4,
+                            5000,
+                        );
+                        let s_policy = best_first_policy(
+                            &base_cnf,
+                            &universe,
+                            &dk,
+                            target,
+                            Objective::Simplicity,
+                            4,
+                            5000,
+                        );
+
+                        local_w_stats.update(w_policy, &universe, &dn, target);
+                        local_s_stats.update(s_policy, &universe, &dn, target);
+                    }
+
+                    // Merge local stats into global stats
+                    w_stats.lock().unwrap().merge(local_w_stats);
+                    s_stats.lock().unwrap().merge(local_s_stats);
+                });
+
+                handles.push(handle);
+            }
+
+            // Wait for all threads to complete
+            for handle in handles {
+                handle.join().unwrap();
+            }
+
+            let w_stats = Arc::try_unwrap(w_stats).unwrap().into_inner().unwrap();
+            let s_stats = Arc::try_unwrap(s_stats).unwrap().into_inner().unwrap();
 
             println!("\n=== |D_k| = {} ===", k);
             print_policy_stats("w-max", &w_stats);
@@ -473,14 +630,15 @@ fn print_policy_stats(label: &str, stats: &Stats) {
     }
 
     let denom = stats.found as f32;
-    let universe_size = 4096.0;
+    let universe_size = 256.0; // Updated for 8-bit universe
     let avg_ext = stats.ext_sum as f32 / (denom * universe_size);
     println!(
-        "  AvgExt={:.3}  avg weakness: {:.2}  avg length: {:.2}  avg clauses: {:.2}",
+        "  AvgExt={:.3}  avg weakness: {:.2}  avg length: {:.2}  avg clauses: {:.2}  avg nec: {:.2}",
         avg_ext,
         stats.weakness_sum as f32 / denom,
         stats.length_sum as f32 / denom,
-        stats.clauses_sum as f32 / denom
+        stats.clauses_sum as f32 / denom,
+        stats.nec_sum as f32 / denom
     );
     println!(
         "  avg TP={:.3} FP={:.3} FN={:.3}",
@@ -548,7 +706,7 @@ fn description_length(cnf: &Cnf) -> usize {
 }
 
 fn same_situation(a: State, b: State, target: u8) -> bool {
-    let mask: u16 = !(1u16 << target);
+    let mask: u8 = !(1u8 << target);
     (a & mask) == (b & mask)
 }
 
@@ -560,7 +718,12 @@ fn extension(cnf: &Cnf, universe: &[State]) -> Vec<State> {
         .collect()
 }
 
-fn reconstruct_decisions(cnf: &Cnf, universe: &[State], situations: &[State], target: u8) -> Vec<State> {
+fn reconstruct_decisions(
+    cnf: &Cnf,
+    universe: &[State],
+    situations: &[State],
+    target: u8,
+) -> Vec<State> {
     let ext = extension(cnf, universe);
     let mut result = Vec::new();
 
@@ -674,21 +837,31 @@ fn best_first_policy(
     let mut heap = BinaryHeap::new();
     let mut visited: HashSet<Vec<usize>> = HashSet::new();
 
-    let mut start_indices = necessary_idxs.clone();
-    start_indices.sort_unstable();
-    start_indices.dedup();
+    // Seed queue with necessary ∪ {ix} for each clause ix (matching Bennett's Python)
+    for ix in 0..n {
+        let mut start_indices = necessary_idxs.clone();
+        if !start_indices.contains(&ix) {
+            start_indices.push(ix);
+        }
+        start_indices.sort_unstable();
+        start_indices.dedup();
 
-    let start_cnf = cnf_from_indices(full_cnf, &start_indices);
-    let start_priority = match objective {
-        Objective::Weakness => weakness(&start_cnf, universe) as isize,
-        Objective::Simplicity => -(description_length(&start_cnf) as isize),
-    };
+        if visited.contains(&start_indices) {
+            continue;
+        }
 
-    heap.push(Node {
-        indices: start_indices.clone(),
-        priority: start_priority,
-    });
-    visited.insert(start_indices);
+        let start_cnf = cnf_from_indices(full_cnf, &start_indices);
+        let start_priority = match objective {
+            Objective::Weakness => weakness(&start_cnf, universe) as isize, // no minus - want MAX weakness
+            Objective::Simplicity => -(description_length(&start_cnf) as isize),
+        };
+
+        heap.push(Node {
+            indices: start_indices.clone(),
+            priority: start_priority,
+        });
+        visited.insert(start_indices);
+    }
 
     while let Some(node) = heap.pop() {
         if start_time.elapsed().as_millis() > time_limit_ms {
@@ -722,7 +895,7 @@ fn best_first_policy(
 
                 let new_cnf = cnf_from_indices(full_cnf, &new_indices);
                 let pri = match objective {
-                    Objective::Weakness => weakness(&new_cnf, universe) as isize,
+                    Objective::Weakness => weakness(&new_cnf, universe) as isize, // no minus - want MAX weakness
                     Objective::Simplicity => -(description_length(&new_cnf) as isize),
                 };
 
@@ -735,5 +908,6 @@ fn best_first_policy(
         }
     }
 
-    None
+    // If no sufficient subset found, return full CNF (matches Python behavior)
+    Some(full_cnf.clone())
 }
