@@ -37,11 +37,15 @@ struct Stats {
     clauses_sum: usize,
     ext_sum: usize,
     nec_sum: usize,
+    timeouts: usize,
 }
 
 impl Stats {
-    fn update(&mut self, policy: Option<Cnf>, universe: &[State], dn: &[State], target: u8) {
+    fn update(&mut self, policy: Option<Cnf>, timed_out: bool, universe: &[State], dn: &[State], target: u8) {
         self.trials += 1;
+        if timed_out {
+            self.timeouts += 1;
+        }
         if let Some(cnf) = policy {
             self.found += 1;
             let (tp, fp, fn_) = accuracy_on_dn(&cnf, universe, dn, target);
@@ -73,6 +77,7 @@ impl Stats {
         self.clauses_sum += other.clauses_sum;
         self.ext_sum += other.ext_sum;
         self.nec_sum += other.nec_sum;
+        self.timeouts += other.timeouts;
     }
 }
 
@@ -514,7 +519,7 @@ fn main() {
 
     let universe: Vec<State> = (0u8..=255).collect(); // 2^8 = 256 states for 8-bit space
     let ks = [6usize, 10];
-    let trials_per_k = 100; // Increased for stable statistics
+    let trials_per_k = 128; // Match Bennett's experiment
     let tasks = [
         Task::Multiplication, // Test multiplication first (biggest gap in Bennett)
         Task::Addition,
@@ -540,8 +545,8 @@ fn main() {
             // Pre-generate all trial parameters (deterministic)
             let mut trial_params = Vec::new();
             for _ in 0..trials_per_k {
-                // Restrict target to output bits (4-7, i.e., z bits in 8-bit layout)
-                let target = 4 + rng.next_usize(4) as u8;
+                // Sample target from all 8 bits (matching Bennett's Python)
+                let target = rng.next_usize(8) as u8;
                 let dk = sample_dk(&dn, k, &mut rng);
                 trial_params.push((target, dk));
             }
@@ -569,27 +574,27 @@ fn main() {
                     for (target, dk) in chunk {
                         let base_cnf = simplified_cnf(&dk, &universe, target);
 
-                        let w_policy = best_first_policy(
+                        let (w_policy, w_timeout) = best_first_policy(
                             &base_cnf,
                             &universe,
                             &dk,
                             target,
                             Objective::Weakness,
-                            4,
-                            5000,
+                            16,
+                            60_000, // 60 seconds
                         );
-                        let s_policy = best_first_policy(
+                        let (s_policy, s_timeout) = best_first_policy(
                             &base_cnf,
                             &universe,
                             &dk,
                             target,
                             Objective::Simplicity,
-                            4,
-                            5000,
+                            16,
+                            60_000, // 60 seconds
                         );
 
-                        local_w_stats.update(w_policy, &universe, &dn, target);
-                        local_s_stats.update(s_policy, &universe, &dn, target);
+                        local_w_stats.update(w_policy, w_timeout, &universe, &dn, target);
+                        local_s_stats.update(s_policy, s_timeout, &universe, &dn, target);
                     }
 
                     // Merge local stats into global stats
@@ -618,11 +623,12 @@ fn main() {
 fn print_policy_stats(label: &str, stats: &Stats) {
     println!("{}:", label);
     println!(
-        "  found   : {}/{} (perfect {} | Rate {:.3})",
+        "  found   : {}/{} (perfect {} | Rate {:.3}) timeouts: {}",
         stats.found,
         stats.trials,
         stats.perfect,
-        stats.perfect as f32 / stats.trials as f32
+        stats.perfect as f32 / stats.trials as f32,
+        stats.timeouts
     );
 
     if stats.found == 0 {
@@ -817,25 +823,26 @@ fn best_first_policy(
     objective: Objective,
     depth_limit: usize,
     time_limit_ms: u128,
-) -> Option<Cnf> {
+) -> (Option<Cnf>, bool) {
     let start_time = Instant::now();
     let n = full_cnf.len();
     if n == 0 {
-        return Some(Vec::new());
+        return (Some(Vec::new()), false);
     }
 
     let necessary_idxs = necessary_clauses(full_cnf, universe, decisions, target);
 
     if necessary_idxs.len() == n {
         return if is_sufficient(full_cnf, universe, decisions, target) {
-            Some(full_cnf.clone())
+            (Some(full_cnf.clone()), false)
         } else {
-            None
+            (None, false)
         };
     }
 
     let mut heap = BinaryHeap::new();
     let mut visited: HashSet<Vec<usize>> = HashSet::new();
+    let mut timed_out = false;
 
     // Seed queue with necessary ∪ {ix} for each clause ix (matching Bennett's Python)
     for ix in 0..n {
@@ -865,13 +872,14 @@ fn best_first_policy(
 
     while let Some(node) = heap.pop() {
         if start_time.elapsed().as_millis() > time_limit_ms {
+            timed_out = true;
             break;
         }
 
         let current_cnf = cnf_from_indices(full_cnf, &node.indices);
 
         if is_sufficient(&current_cnf, universe, decisions, target) {
-            return Some(current_cnf);
+            return (Some(current_cnf), false);
         }
 
         if node.indices.len() >= depth_limit {
@@ -908,6 +916,6 @@ fn best_first_policy(
         }
     }
 
-    // If no sufficient subset found, return full CNF (matches Python behavior)
-    Some(full_cnf.clone())
+    // If no sufficient subset found, return None (matching Bennett's semantics)
+    (None, timed_out)
 }
