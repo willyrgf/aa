@@ -24,22 +24,26 @@ impl State {
 
     pub fn add(&self) -> Self {
         let (x, y, _) = self.decode();
-        encode(x, y, (x + y) & 0b1111)
+        let z = (x + y) & 0b1111;
+        encode(x, y, z)
     }
 
     pub fn mul(&self) -> Self {
         let (x, y, _) = self.decode();
-        encode(x, y, ((x as u16 * y as u16) & 0b1111) as u8)
+        let z = ((x as u16 * y as u16) & 0b1111) as u8;
+        encode(x, y, z)
     }
 
     pub fn xor(&self) -> Self {
         let (x, y, _) = self.decode();
-        encode(x, y, (x ^ y) & 0b1111)
+        let z = (x ^ y) & 0b1111;
+        encode(x, y, z)
     }
 
     pub fn nand(&self) -> Self {
         let (x, y, _) = self.decode();
-        encode(x, y, !(x & y) & 0b1111)
+        let z = !(x & y) & 0b1111;
+        encode(x, y, z)
     }
 }
 
