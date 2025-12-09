@@ -1,8 +1,5 @@
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashSet};
-use std::env;
-use std::fs::File;
-use std::io::Write;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Instant;
@@ -41,7 +38,14 @@ struct Stats {
 }
 
 impl Stats {
-    fn update(&mut self, policy: Option<Cnf>, timed_out: bool, universe: &[State], dn: &[State], target: u8) {
+    fn update(
+        &mut self,
+        policy: Option<Cnf>,
+        timed_out: bool,
+        universe: &[State],
+        dn: &[State],
+        target: u8,
+    ) {
         self.trials += 1;
         if timed_out {
             self.timeouts += 1;
@@ -100,10 +104,6 @@ impl SplitMix64 {
         z ^ (z >> 31)
     }
 
-    fn next_u32(&mut self) -> u32 {
-        (self.next_u64() >> 32) as u32
-    }
-
     fn next_usize(&mut self, max: usize) -> usize {
         if max == 0 {
             return 0;
@@ -141,7 +141,6 @@ enum Task {
     Addition,
     Multiplication,
     Xor,
-    Random { seed: u64 },
 }
 
 impl Task {
@@ -150,7 +149,6 @@ impl Task {
             Task::Addition => "addition".to_string(),
             Task::Multiplication => "multiplication".to_string(),
             Task::Xor => "xor".to_string(),
-            Task::Random { seed } => format!("random_seed{}", seed),
         }
     }
 
@@ -159,11 +157,6 @@ impl Task {
             Task::Addition => (x + y) & 0b1111,
             Task::Multiplication => ((x as u16 * y as u16) & 0b1111) as u8,
             Task::Xor => (x ^ y) & 0b1111,
-            Task::Random { seed } => {
-                // Generate lookup table deterministically from seed
-                let mut rng = SplitMix64::new(*seed + (x as u64) * 256 + (y as u64));
-                (rng.next_u32() & 0b1111) as u8
-            }
         }
     }
 }
@@ -257,11 +250,11 @@ fn qm_prime_implicants(false_states: &[State]) -> Vec<Term> {
 }
 
 fn cost_of_combo(combo: &[usize], primes: &[Term]) -> (usize, usize) {
-    let lits: usize = combo
+    let l: usize = combo
         .iter()
         .map(|&i| implicant_literal_count(primes[i]))
         .sum();
-    (combo.len(), lits)
+    (combo.len(), l)
 }
 
 fn petrick(coverage: &[Vec<usize>], primes: &[Term]) -> Vec<usize> {
@@ -391,27 +384,6 @@ fn term_to_clause(term: Term) -> Clause {
     clause
 }
 
-fn clause_subsumes(a: &Clause, b: &Clause) -> bool {
-    a.iter().all(|lit_a| b.contains(lit_a))
-}
-
-fn absorb_clauses(cnf: &mut Cnf) {
-    if cnf.is_empty() {
-        return;
-    }
-    cnf.sort_by_key(|c| c.len());
-    let mut keep: Vec<Clause> = Vec::new();
-    'outer: for i in 0..cnf.len() {
-        for j in 0..i {
-            if clause_subsumes(&keep[j], &cnf[i]) {
-                continue 'outer;
-            }
-        }
-        keep.push(cnf[i].clone());
-    }
-    *cnf = keep;
-}
-
 fn simplified_cnf(positives: &[State], universe: &[State], target: u8) -> Cnf {
     let positives_set: HashSet<State> = positives.iter().copied().collect();
     let false_states: Vec<State> = universe
@@ -466,57 +438,7 @@ enum Objective {
     Simplicity,
 }
 
-fn cnf_to_json(cnf: &Cnf) -> String {
-    let mut clauses = Vec::new();
-    for clause in cnf {
-        let lits: Vec<String> = clause
-            .iter()
-            .map(|lit| {
-                format!(
-                    r#"{{"var":{},"neg":{}}}"#,
-                    lit.var,
-                    if lit.neg { "true" } else { "false" }
-                )
-            })
-            .collect();
-        clauses.push(format!("[{}]", lits.join(",")));
-    }
-    format!(r#"{{"clauses":[{}]}}"#, clauses.join(","))
-}
-
-fn validate_mode() {
-    println!("=== CNF Validation Mode ===");
-    let universe: Vec<State> = (0u8..=255).collect();
-    let dn = generate_dn(Task::Multiplication);
-    let dk: Vec<State> = dn.iter().copied().take(6).collect();
-    let target = 4u8;
-
-    println!("Generating CNF for multiplication task:");
-    println!("  |D_k| = {}", dk.len());
-    println!("  target bit = {}", target);
-
-    let cnf = simplified_cnf(&dk, &universe, target);
-    println!("  Generated {} clauses", cnf.len());
-
-    let json = cnf_to_json(&cnf);
-    let filename = "rust_cnf.json";
-    let mut file = File::create(filename).expect("Failed to create output file");
-    file.write_all(json.as_bytes())
-        .expect("Failed to write JSON");
-
-    println!("\nCNF written to: {}", filename);
-    println!("\nTo validate against SymPy:");
-    println!("  python3 validate_cnf.py {}", filename);
-}
-
 fn main() {
-    // Check for --validate flag
-    let args: Vec<String> = env::args().collect();
-    if args.len() > 1 && args[1] == "--validate" {
-        validate_mode();
-        return;
-    }
-
     let universe: Vec<State> = (0u8..=255).collect(); // 2^8 = 256 states for 8-bit space
     let ks = [6usize, 10];
     let trials_per_k = 128; // Match Bennett's experiment
@@ -524,7 +446,6 @@ fn main() {
         Task::Multiplication, // Test multiplication first (biggest gap in Bennett)
         Task::Addition,
         Task::Xor,
-        //Task::Random { seed: 42 },
     ];
     let base_seed = 123_456_789;
     let num_threads = thread::available_parallelism()
