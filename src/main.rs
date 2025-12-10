@@ -1,3 +1,4 @@
+mod cnf;
 mod dataset;
 mod rng;
 mod state;
