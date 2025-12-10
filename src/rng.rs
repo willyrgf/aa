@@ -1,16 +1,16 @@
 use std::u64;
 
 #[derive(Clone)]
-struct SplitMix64 {
+pub struct SplitMix64 {
     state: u64,
 }
 
 impl SplitMix64 {
-    fn new(seed: u64) -> Self {
+    pub fn new(seed: u64) -> Self {
         Self { state: seed }
     }
 
-    fn next_u64(&mut self) -> u64 {
+    pub fn next_u64(&mut self) -> u64 {
         self.state = self.state.wrapping_add(0x9e3779b97f4a7c15);
         let mut z = self.state;
         z = (z ^ (z >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
@@ -18,7 +18,7 @@ impl SplitMix64 {
         z ^ (z >> 31)
     }
 
-    fn next_usize(&mut self, max: usize) -> usize {
+    pub fn next_usize(&mut self, max: usize) -> usize {
         if max == 0 {
             return 0;
         }
