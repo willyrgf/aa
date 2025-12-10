@@ -1,9 +1,11 @@
 use std::fmt;
 
+pub type Bits = u8;
+
 // State a single byte encoding all possible universes 0-255,
 // where in z = task(x,y), so the 8 bits are x = 0-1; y = 2-3; z = 4-7
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct State(pub u8);
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Hash)]
+pub struct State(pub Bits);
 
 // encode returns a State u8: 7-4 = z; 3-2 = y; 0-1 = x
 pub fn encode(x: u8, y: u8, z: u8) -> State {
@@ -11,7 +13,7 @@ pub fn encode(x: u8, y: u8, z: u8) -> State {
 }
 
 impl State {
-    pub const BITS: u32 = u8::BITS;
+    pub const BITS: u32 = Bits::BITS;
 
     pub fn decode(&self) -> (u8, u8, u8) {
         (
@@ -19,6 +21,10 @@ impl State {
             ((self.0 >> 2) & 0b11),
             ((self.0 >> 4) & 0b1111),
         )
+    }
+
+    pub fn get_bit(self, var: u8) -> bool {
+        ((self.0 >> var) & 1) != 0
     }
 
     pub fn add(&self) -> Self {
@@ -43,6 +49,13 @@ impl State {
         let (x, y, _) = self.decode();
         let z = !(x & y) & 0b1111;
         encode(x, y, z)
+    }
+
+    // universe return all representable bit patterns.
+    // (e.g., u8 is 0..255)
+    // would be impossibly big for > u32.
+    pub fn universe() -> impl Iterator<Item = State> {
+        (Bits::MIN..=Bits::MAX).map(State)
     }
 }
 
