@@ -1,4 +1,5 @@
 mod cnf;
+mod cnf_qm_petrick;
 mod dataset;
 mod rng;
 mod state;
