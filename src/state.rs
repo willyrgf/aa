@@ -23,8 +23,16 @@ impl State {
         )
     }
 
-    pub fn get_bit(self, var: u8) -> bool {
+    pub fn get_bit(&self, var: u8) -> bool {
         ((self.0 >> var) & 1) != 0
+    }
+
+    pub fn ones(&self) -> usize {
+        self.0.count_ones() as usize
+    }
+
+    pub fn bits(&self) -> Bits {
+        self.0
     }
 
     pub fn add(&self) -> Self {
