@@ -129,7 +129,7 @@ pub fn qm_prime_implicants(false_states: &[State]) -> Vec<Term> {
             }
         }
 
-        if !combined_set.is_empty() {
+        if combined_set.is_empty() {
             break;
         }
 
@@ -137,4 +137,232 @@ pub fn qm_prime_implicants(false_states: &[State]) -> Vec<Term> {
     }
 
     prime_implicants
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_term_care_bits() {
+        // no mask, all bits are care bits
+        let term = Term {
+            bits: 0b1010,
+            mask: 0b0000,
+        };
+        assert_eq!(term.care_bits(), 0b1010);
+
+        // mask out bit 1
+        let term = Term {
+            bits: 0b1010,
+            mask: 0b0010,
+        };
+        assert_eq!(term.care_bits(), 0b1000);
+
+        // mask out multiple bits
+        let term = Term {
+            bits: 0b1111,
+            mask: 0b0101,
+        };
+        assert_eq!(term.care_bits(), 0b1010);
+    }
+
+    #[test]
+    fn test_count_care_bits() {
+        let term = Term {
+            bits: 0b1010,
+            mask: 0b0000,
+        };
+        assert_eq!(term.count_care_bits(), 2);
+
+        let term = Term {
+            bits: 0b1111,
+            mask: 0b0101,
+        };
+        assert_eq!(term.count_care_bits(), 2);
+
+        let term = Term {
+            bits: 0b0000,
+            mask: 0b1111,
+        };
+        assert_eq!(term.count_care_bits(), 0);
+    }
+
+    #[test]
+    fn test_combine_terms_success() {
+        // 1010 and 1000 differ only in bit 1
+        let a = Term {
+            bits: 0b1010,
+            mask: 0b0000,
+        };
+        let b = Term {
+            bits: 0b1000,
+            mask: 0b0000,
+        };
+
+        let result = combine_terms(&a, &b);
+        assert!(result.is_some());
+
+        let combined = result.unwrap();
+        assert_eq!(combined.bits, 0b1000);
+        assert_eq!(combined.mask, 0b0010);
+        assert_eq!(combined.care_bits(), 0b1000);
+    }
+
+    #[test]
+    fn test_combine_terms_different_masks() {
+        let a = Term {
+            bits: 0b1010,
+            mask: 0b0001,
+        };
+        let b = Term {
+            bits: 0b1000,
+            mask: 0b0010,
+        };
+
+        let result = combine_terms(&a, &b);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_combine_terms_multiple_bit_diff() {
+        // 1010 and 0101 differ in multiple bits
+        let a = Term {
+            bits: 0b1010,
+            mask: 0b0000,
+        };
+        let b = Term {
+            bits: 0b0101,
+            mask: 0b0000,
+        };
+
+        let result = combine_terms(&a, &b);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_combine_terms_identical() {
+        let a = Term {
+            bits: 0b1010,
+            mask: 0b0000,
+        };
+        let b = Term {
+            bits: 0b1010,
+            mask: 0b0000,
+        };
+
+        let result = combine_terms(&a, &b);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_combine_terms_diff_in_dont_care() {
+        // both have same mask, but differ in a dont-care bit
+        let a = Term {
+            bits: 0b1010,
+            mask: 0b0010,
+        };
+        let b = Term {
+            bits: 0b1000,
+            mask: 0b0010,
+        };
+
+        // they differ in bit 1, which is already a dont-care
+        let result = combine_terms(&a, &b);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_term_covers_matching() {
+        let term = Term {
+            bits: 0b1010,
+            mask: 0b0000,
+        };
+        let state = State(0b1010);
+
+        assert!(term_covers(term, state));
+    }
+
+    #[test]
+    fn test_term_covers_with_dont_care() {
+        // term 10-0 (bit 1 is dont-care)
+        let term = Term {
+            bits: 0b1000,
+            mask: 0b0010,
+        };
+
+        // should cover both 1010 and 1000
+        assert!(term_covers(term.clone(), State(0b1010)));
+        assert!(term_covers(term.clone(), State(0b1000)));
+
+        // should not cover 0010 or 0000
+        assert!(!term_covers(term.clone(), State(0b0010)));
+        assert!(!term_covers(term, State(0b0000)));
+    }
+
+    #[test]
+    fn test_term_covers_not_matching() {
+        let term = Term {
+            bits: 0b1010,
+            mask: 0b0000,
+        };
+        let state = State(0b1000);
+
+        assert!(!term_covers(term, state));
+    }
+
+    #[test]
+    fn test_qm_prime_implicants_simple() {
+        // false states: 0b00, 0b01
+        // these should combine to 0b0- (bit 0 is dont-care)
+        let false_states = vec![State(0b00), State(0b01)];
+
+        let primes = qm_prime_implicants(&false_states);
+
+        // should have 1 prime implicant: 0b00 with mask 0b01
+        assert_eq!(primes.len(), 1);
+        assert_eq!(primes[0].bits, 0b00);
+        assert_eq!(primes[0].mask, 0b01);
+    }
+
+    #[test]
+    fn test_qm_prime_implicants_no_combination() {
+        // false states that differ in more than one bit
+        let false_states = vec![State(0b0000), State(0b1111)];
+
+        let primes = qm_prime_implicants(&false_states);
+
+        // should have 2 prime implicants (no combination possible)
+        assert_eq!(primes.len(), 2);
+    }
+
+    #[test]
+    fn test_qm_prime_implicants_multiple_levels() {
+        // false states: 0b000, 0b001, 0b010, 0b011
+        // 000 + 001 -> 00-
+        // 010 + 011 -> 01-
+        // 00- + 01- -> 0--
+        let false_states = vec![State(0b000), State(0b001), State(0b010), State(0b011)];
+
+        let primes = qm_prime_implicants(&false_states);
+
+        // should result in one prime implicant: 0b0-- (only bit 2 matters, must be 0)
+        assert_eq!(primes.len(), 1);
+        assert_eq!(primes[0].care_bits(), 0b000);
+        assert_eq!(primes[0].mask, 0b011);
+    }
+
+    #[test]
+    fn test_qm_prime_implicants_complex() {
+        // a more complex example with partial coverage
+        // false states: 0b100, 0b101, 0b110
+        // 100 + 101 -> 10-
+        // 110 cannot combine with the result
+        let false_states = vec![State(0b100), State(0b101), State(0b110)];
+
+        let primes = qm_prime_implicants(&false_states);
+
+        // should have 2 prime implicants: 10- and 110
+        assert_eq!(primes.len(), 2);
+    }
 }
