@@ -69,6 +69,10 @@ impl Clause {
     pub fn eval(&self, s: State) -> bool {
         self.0.iter().any(|lit| lit.eval(s))
     }
+
+    pub fn literals(&self) -> Vec<Literal> {
+        self.0.clone()
+    }
 }
 
 impl Cnf {
@@ -79,6 +83,10 @@ impl Cnf {
     // eval at CNF level: Clause AND Clause
     pub fn eval(&self, s: State) -> bool {
         self.0.iter().all(|clause| clause.eval(s))
+    }
+
+    pub fn clauses(&self) -> Vec<Clause> {
+        self.0.clone()
     }
 }
 
