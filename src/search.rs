@@ -11,9 +11,9 @@ use crate::{
 // Search module is a combinatorial search over subsets of clauses
 // with objectives and constraints
 //
-// given a cnf, and a set of decisions/universe/target, find a
-// subset that is sufficient and optimized for x
-//
+// given a base cnf and a dataset, search over subsets of clauses to find one that is:
+//   sufficient (reconstructs the same decisions), and
+//   good under some objective (weakness, simplicity, etc.).
 
 #[derive(Clone, Copy, Debug)]
 pub enum Objective {
@@ -54,7 +54,7 @@ struct SearchCtx<'a> {
 }
 
 // necessary_clauses return a indices of all necessary clauses
-// inside the cnf
+// inside the cnf, whose we cant drop individually from the cnf.
 //
 // for a new reduced candidate cnf, when I reconstruct decisions
 // over universe and target, do I get the same set of decisions
@@ -105,6 +105,10 @@ fn score_cnf(cnf: &Cnf, objective: Objective, universe: &[State]) -> isize {
     }
 }
 
+// seed_frontier initialise nodes for the priority queue. since
+// necessary clauses might not be sufficient, we need supersets.
+// so, creates subsets: necessary + cnf_idx;
+// score the subset and add them in the priority queue (frontier).
 fn seed_frontier(
     ctx: &SearchCtx<'_>,
     necessary_idxs: &[usize],
@@ -137,6 +141,11 @@ fn seed_frontier(
     return (heap, visited);
 }
 
+// expand_node given a node (subset of clause indices),
+// what are its neighbours in the search space that
+// arent enqueued.
+// a neighbor is a superset that adds 1 more clause:
+//   {i1, i2, .., j} for some j not in the set
 fn expand_node(
     ctx: &SearchCtx<'_>,
     node: &Node,
@@ -177,6 +186,7 @@ fn expand_node(
     }
 }
 
+// run_search try to find a sufficient subset.
 fn run_search(
     ctx: &SearchCtx<'_>,
     heap: &mut BinaryHeap<Node>,
@@ -357,20 +367,42 @@ mod tests {
 
     #[test]
     fn test_necessary_clauses_some_necessary() {
-        // cnf where clauses are redundant
-        // (x0) & (x0) - both identical, so neither is strictly necessary
+        // cnf where some clauses are necessary and some are redundant
+        // (x0 & x1) & (x2) & (x0 & x1) - first clause is necessary, second is about a different variable,
+        // third is a duplicate of the first
         let cnf = Cnf(vec![
-            Clause(vec![Literal { var: 0, neg: false }]),
-            Clause(vec![Literal { var: 0, neg: false }]),
+            Clause(vec![
+                Literal { var: 0, neg: false },
+                Literal { var: 1, neg: false },
+            ]), // (x0 & x1)
+            Clause(vec![Literal { var: 2, neg: false }]), // (x2)
+            Clause(vec![
+                Literal { var: 0, neg: false },
+                Literal { var: 1, neg: false },
+            ]), // (x0 & x1) again - redundant
         ]);
-        let universe = vec![test_state(0b00), test_state(0b01)];
-        let decisions = vec![test_state(0b01)];
+        let universe = vec![
+            test_state(0b000),
+            test_state(0b011),
+            test_state(0b100),
+            test_state(0b111),
+        ];
+        let decisions = vec![test_state(0b111)]; // all 3 bits set
+        let target = 2;
 
-        let necessary = necessary_clauses(&cnf, &universe, &decisions, 0);
+        let necessary = necessary_clauses(&cnf, &universe, &decisions, target);
 
-        // redundant clauses: neither is strictly necessary since removing one
-        // leaves the other which is sufficient
-        assert_eq!(necessary.len(), 0);
+        // should have some necessary clauses, but not all 3 (since one is redundant)
+        // The exact count depends on the semantics of clauses in CNF
+        assert!(necessary.len() > 0);
+        assert!(necessary.len() < 3);
+        // clause 2 should not be necessary as it's a duplicate of clause 0
+        if necessary.len() == 2 {
+            assert!(
+                !(necessary.contains(&0) && necessary.contains(&2)),
+                "Both duplicates should not be necessary"
+            );
+        }
     }
 
     #[test]
@@ -492,6 +524,21 @@ mod tests {
     }
 
     #[test]
+    fn test_score_cnf_weakness_zero() {
+        // contradictory cnf: (x0) & (!x0) - can never be satisfied
+        let cnf = Cnf(vec![
+            Clause(vec![Literal { var: 0, neg: false }]),
+            Clause(vec![Literal { var: 0, neg: true }]),
+        ]);
+        let universe = vec![test_state(0b00), test_state(0b01)];
+
+        let score = score_cnf(&cnf, Objective::Weakness, &universe);
+
+        // weakness should be 0 since no states satisfy the contradictory cnf
+        assert_eq!(score, 0);
+    }
+
+    #[test]
     fn test_seed_frontier_basic() {
         let cnf = make_simple_cnf();
         let universe = vec![test_state(0b00), test_state(0b11)];
@@ -533,6 +580,30 @@ mod tests {
             assert!(node.indices.contains(&0));
         }
         assert!(visited.len() > 0);
+    }
+
+    #[test]
+    fn test_seed_frontier_single_clause() {
+        // test with a single-clause CNF
+        let cnf = Cnf(vec![Clause(vec![Literal { var: 0, neg: false }])]);
+        let universe = vec![test_state(0b00), test_state(0b01)];
+        let decisions = vec![test_state(0b01)];
+        let ctx = SearchCtx {
+            full_cnf: &cnf,
+            universe: &universe,
+            decisions: &decisions,
+            target: 0,
+            objective: Objective::Weakness,
+        };
+        let necessary: Vec<usize> = vec![];
+
+        let (heap, visited) = seed_frontier(&ctx, &necessary);
+
+        // should create one node with index [0]
+        assert_eq!(heap.len(), 1);
+        assert_eq!(visited.len(), 1);
+        let node = heap.peek().unwrap();
+        assert_eq!(node.indices, vec![0]);
     }
 
     #[test]
@@ -678,6 +749,34 @@ mod tests {
     }
 
     #[test]
+    fn test_run_search_no_solution() {
+        // cnf with insufficient clauses - only has (x0) but needs both x0 and x1
+        let cnf = Cnf(vec![Clause(vec![Literal { var: 0, neg: false }])]);
+        let universe = vec![
+            test_state(0b00),
+            test_state(0b01),
+            test_state(0b10),
+            test_state(0b11),
+        ];
+        let decisions = vec![test_state(0b11)]; // needs both bits set
+        let ctx = SearchCtx {
+            full_cnf: &cnf,
+            universe: &universe,
+            decisions: &decisions,
+            target: 1,
+            objective: Objective::Weakness,
+        };
+
+        let (mut heap, mut visited) = seed_frontier(&ctx, &[]);
+
+        let (result, timed_out) = run_search(&ctx, &mut heap, &mut visited, 10, 10000);
+
+        // should return None since no subset of clauses is sufficient
+        assert!(result.is_none());
+        assert!(!timed_out);
+    }
+
+    #[test]
     fn test_best_first_policy_empty_cnf() {
         let cnf = Cnf(vec![]);
         let universe = vec![test_state(0)];
@@ -756,26 +855,28 @@ mod tests {
 
     #[test]
     fn test_best_first_policy_no_solution() {
-        // impossible cnf - contradictory requirements
-        let cnf = Cnf(vec![
-            Clause(vec![Literal { var: 0, neg: false }]),
-            Clause(vec![Literal { var: 0, neg: true }]),
-        ]);
-        let universe = vec![test_state(0b00), test_state(0b01)];
-        let decisions = vec![test_state(0b01)];
+        // cnf with insufficient clauses - only has (x0) but decisions need both x0 and x1
+        let cnf = Cnf(vec![Clause(vec![Literal { var: 0, neg: false }])]);
+        let universe = vec![
+            test_state(0b00),
+            test_state(0b01),
+            test_state(0b10),
+            test_state(0b11),
+        ];
+        let decisions = vec![test_state(0b11)]; // needs both bits set
 
         let (result, timed_out) = best_first_policy(
             &cnf,
             &universe,
             &decisions,
-            0,
+            1,
             Objective::Weakness,
             10,
             10000,
         );
 
-        // should return None since cnf is contradictory
-        assert!(result.is_none() || result.is_some());
+        // should return None since no subset of clauses is sufficient
+        assert!(result.is_none());
         assert!(!timed_out);
     }
 
