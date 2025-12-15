@@ -80,6 +80,10 @@ impl Cnf {
         self.to_string().len()
     }
 
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
     // eval at CNF level: Clause AND Clause
     pub fn eval(&self, s: State) -> bool {
         self.0.iter().all(|clause| clause.eval(s))
@@ -88,6 +92,11 @@ impl Cnf {
     pub fn clauses(&self) -> Vec<Clause> {
         self.0.clone()
     }
+}
+
+// TODO: review this
+pub fn weakness(cnf: &Cnf, universe: &[State]) -> usize {
+    universe.iter().filter(|&&s| cnf.eval(s)).count()
 }
 
 fn states_eq(a: &[State], b: &[State]) -> bool {
@@ -117,7 +126,8 @@ fn extension(cnf: &Cnf, universe: &[State]) -> Vec<State> {
     universe.iter().copied().filter(|s| cnf.eval(*s)).collect()
 }
 
-// TODO: find better naming
+// reconstruct_decision rebuilds decision set based on this cnf,
+// universe and situation set
 fn reconstruct_decision(
     cnf: &Cnf,
     universe: &[State],
@@ -125,11 +135,11 @@ fn reconstruct_decision(
     target: u8,
 ) -> Vec<State> {
     // TODO: find better naming
-    let extension = extension(cnf, universe);
+    let true_states_in_universe = extension(cnf, universe);
     let mut result = Vec::new();
 
     for &sit in situations {
-        for &e in &extension {
+        for &e in &true_states_in_universe {
             if state_eq_except_target(e, sit, target) {
                 result.push(e);
             }
@@ -141,7 +151,9 @@ fn reconstruct_decision(
     result
 }
 
-fn is_sufficient(cnf: &Cnf, universe: &[State], decisions: &[State], target: u8) -> bool {
+// is_sufficient is true if this cnf is sufficient to reconstruct
+// the same decision set as the original decision set
+pub fn is_sufficient(cnf: &Cnf, universe: &[State], decisions: &[State], target: u8) -> bool {
     let reconstructed = reconstruct_decision(cnf, universe, decisions, target);
     states_eq(&reconstructed, decisions)
 }
