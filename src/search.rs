@@ -59,7 +59,12 @@ struct SearchCtx<'a> {
 // for a new reduced candidate cnf, when I reconstruct decisions
 // over universe and target, do I get the same set of decisions
 // as the original decisions?
-fn necessary_clauses(cnf: &Cnf, universe: &[State], decisions: &[State], target: u8) -> Vec<usize> {
+pub fn necessary_clauses(
+    cnf: &Cnf,
+    universe: &[State],
+    decisions: &[State],
+    target: u8,
+) -> Vec<usize> {
     let n = cnf.len();
     let mut necessary = Vec::new();
 
