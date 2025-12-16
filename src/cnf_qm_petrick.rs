@@ -23,8 +23,18 @@ impl Term {
     pub fn care_bits(&self) -> Bits {
         self.bits & !self.mask
     }
+
+    /// Returns the number of 1s in the care bit positions.
+    /// Used for grouping terms in the Quine-McCluskey algorithm.
     pub fn count_care_bits(&self) -> usize {
         self.care_bits().count_ones() as usize
+    }
+
+    /// Returns the total number of care bit positions (i.e., number of literals).
+    /// This is the number of bits that are NOT don't-cares.
+    /// Used for calculating the cost in Petrick's method.
+    pub fn literal_count(&self) -> usize {
+        (State::BITS as usize) - self.mask.count_ones() as usize
     }
 }
 
@@ -144,7 +154,7 @@ pub fn qm_prime_implicants(false_states: &[State]) -> Vec<Term> {
 
 fn cost_of_combo(combo: &[usize], primes: &[Term]) -> (usize, usize) {
     // total number of literals across all those clauses
-    let total_literals: usize = combo.iter().map(|&idx| primes[idx].count_care_bits()).sum();
+    let total_literals: usize = combo.iter().map(|&idx| primes[idx].literal_count()).sum();
 
     // count of implicants clauses in the solution
     let implicants = combo.len();
@@ -554,7 +564,7 @@ mod tests {
         let (implicants, literals) = cost_of_combo(&combo, &primes);
 
         assert_eq!(implicants, 1);
-        assert_eq!(literals, 2); // two care bits (bits 1 and 3)
+        assert_eq!(literals, 8); // 8 care bit positions (all bits, no don't-cares)
     }
 
     #[test]
@@ -563,22 +573,22 @@ mod tests {
             Term {
                 bits: 0b1010,
                 mask: 0b0000,
-            }, // 2 care bits
+            }, // 8 literals (no don't-cares)
             Term {
                 bits: 0b1100,
                 mask: 0b0001,
-            }, // 2 care bits
+            }, // 7 literals (1 don't-care)
             Term {
                 bits: 0b0000,
                 mask: 0b1111,
-            }, // 0 care bits
+            }, // 4 literals (4 don't-cares)
         ];
         let combo = vec![0, 1, 2];
 
         let (implicants, literals) = cost_of_combo(&combo, &primes);
 
         assert_eq!(implicants, 3);
-        assert_eq!(literals, 4); // 2 + 2 + 0
+        assert_eq!(literals, 19); // 8 + 7 + 4
     }
 
     #[test]
