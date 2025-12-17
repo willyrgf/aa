@@ -1,20 +1,20 @@
-/// TrialResult contains the pre-computed metrics for a single experiment trial.
-/// This decouples the stats module from the internal experiment details.
+/// TrialResult contains the pre-computed metrics for a single experiment trial
+/// this decouples the stats module from the internal experiment details
 #[derive(Debug, Clone)]
 pub struct TrialResult {
-    /// True positive rate (0.0 to 1.0)
+    /// true positive rate (0.0 to 1.0)
     pub tp: f32,
-    /// False positive rate (0.0 to 1.0)
+    /// false positive rate (0.0 to 1.0)
     pub fp: f32,
-    /// False negative rate (0.0 to 1.0)
+    /// false negative rate (0.0 to 1.0)
     pub fn_: f32,
-    /// Weakness score (number of states where policy is weak)
+    /// weakness score (number of states where policy is weak)
     pub weakness: usize,
-    /// Description length of the policy
+    /// description length of the policy
     pub description_length: usize,
-    /// Number of clauses in the policy
+    /// number of clauses in the policy
     pub num_clauses: usize,
-    /// Number of necessary clauses
+    /// number of necessary clauses
     pub num_necessary: usize,
 }
 
@@ -35,11 +35,6 @@ pub struct Stats {
 }
 
 impl Stats {
-    /// Update stats with the result of a single trial.
-    ///
-    /// # Arguments
-    /// * `result` - The pre-computed trial result, or None if no policy was found
-    /// * `timed_out` - Whether the trial timed out
     pub fn update(&mut self, result: Option<TrialResult>, timed_out: bool) {
         self.trials += 1;
         if timed_out {
@@ -61,8 +56,7 @@ impl Stats {
         }
     }
 
-    /// Merge another Stats instance into this one.
-    /// Useful for combining results from parallel experiments.
+    /// merge another stats instance into this one
     pub fn merge(&mut self, other: Stats) {
         self.trials += other.trials;
         self.found += other.found;
@@ -79,12 +73,6 @@ impl Stats {
     }
 }
 
-/// Print formatted statistics for a policy experiment.
-///
-/// # Arguments
-/// * `label` - A label to display for these statistics
-/// * `stats` - The statistics to print
-/// * `universe_size` - The size of the universe (default: 256 for 8-bit state space)
 pub fn print_policy_stats(label: &str, stats: &Stats, universe_size: f32) {
     println!("{}:", label);
     println!(

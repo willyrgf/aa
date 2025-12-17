@@ -6,6 +6,7 @@ pub enum Task {
     Mul,
     Xor,
     Nand,
+    KeepX,
 }
 
 impl Task {
@@ -15,6 +16,7 @@ impl Task {
             Task::Mul => "multiplication",
             Task::Xor => "xor",
             Task::Nand => "nand",
+            Task::KeepX => "keepx",
         }
     }
 
@@ -24,6 +26,7 @@ impl Task {
             Task::Mul => state.mul(),
             Task::Xor => state.xor(),
             Task::Nand => state.nand(),
+            Task::KeepX => state.keepx(),
         }
     }
 }

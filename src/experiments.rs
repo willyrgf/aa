@@ -23,7 +23,7 @@ pub struct Trial {
 /// configuration for experiment execution
 #[derive(Clone, Debug)]
 pub struct ExpConfig {
-    pub beam_size: usize,
+    pub depth_limit: usize,
     pub timeout_ms: u64,
     pub num_threads: usize,
 }
@@ -31,7 +31,7 @@ pub struct ExpConfig {
 impl Default for ExpConfig {
     fn default() -> Self {
         Self {
-            beam_size: 16,
+            depth_limit: 16,
             timeout_ms: 60_000, // 60 seconds
             num_threads: thread::available_parallelism()
                 .map(|n| n.get())
@@ -141,7 +141,7 @@ pub fn execute_experiment(ctx: &ExpCtx) -> ExpResult {
         let dn = Arc::clone(&dn);
         let w_stats = Arc::clone(&w_stats);
         let s_stats = Arc::clone(&s_stats);
-        let beam_size = ctx.config.beam_size;
+        let depth_limit = ctx.config.depth_limit;
         let timeout_ms = ctx.config.timeout_ms;
 
         let handle = thread::spawn(move || {
@@ -157,7 +157,7 @@ pub fn execute_experiment(ctx: &ExpCtx) -> ExpResult {
                     &trial.dk,
                     trial.target,
                     Objective::Weakness,
-                    beam_size,
+                    depth_limit,
                     timeout_ms as u128,
                 );
                 let w_result = policy_to_trial_result(w_policy, &universe, &dn, trial.target);
@@ -169,7 +169,7 @@ pub fn execute_experiment(ctx: &ExpCtx) -> ExpResult {
                     &trial.dk,
                     trial.target,
                     Objective::Simplicity,
-                    beam_size,
+                    depth_limit,
                     timeout_ms as u128,
                 );
                 let s_result = policy_to_trial_result(s_policy, &universe, &dn, trial.target);
@@ -208,25 +208,20 @@ pub fn run_experiments(tasks: &[Task], sample_sizes: &[usize], trials_per_sample
     println!("Trials per k : {}", trials_per_sample);
     println!("Threads      : {}", config.num_threads);
 
-    // Phase 1: Generate all experiment contexts
     let contexts = generate_experiment_contexts(tasks, sample_sizes, trials_per_sample, config);
 
     println!("\nGenerated {} experiment contexts", contexts.len());
 
-    // Phase 2: Execute each experiment context
     let mut current_task = String::new();
     for ctx in &contexts {
-        // Print task header when we encounter a new task
         if ctx.task_label != current_task {
             current_task = ctx.task_label.clone();
             println!("\n-- Task: {} --", ctx.task_label);
             println!("D_n size     : {}", ctx.dn.len());
         }
 
-        // Execute the experiment
         let result = execute_experiment(ctx);
 
-        // Print results
         println!("\n=== |D_k| = {} ===", result.sample_size);
         print_policy_stats("w-max", &result.weakness_stats, universe_size as f32);
         print_policy_stats("simp-max", &result.simplicity_stats, universe_size as f32);

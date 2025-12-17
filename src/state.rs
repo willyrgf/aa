@@ -59,6 +59,12 @@ impl State {
         encode(x, y, z)
     }
 
+    pub fn keepx(&self) -> Self {
+        let (x, y, _) = self.decode();
+        let z = x;
+        encode(x, y, z)
+    }
+
     // universe return all representable bit patterns.
     // (e.g., u8 is 0..255)
     // would be impossibly big for > u32.

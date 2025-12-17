@@ -11,7 +11,7 @@ mod stats;
 mod task;
 
 fn main() {
-    let tasks = [Task::Add, Task::Mul, Task::Xor, Task::Nand];
+    let tasks = [Task::Add, Task::Mul, Task::Xor, Task::Nand, Task::KeepX];
     let sample_sizes = [6usize, 10];
     let trials_per_sample = 128usize;
 
