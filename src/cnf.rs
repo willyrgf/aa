@@ -76,6 +76,8 @@ impl Clause {
 }
 
 impl Cnf {
+    // description_length return how big is the description of a cnf
+    // used as a simp-max parameter, where smaller is simpler
     pub fn description_length(&self) -> usize {
         self.to_string().len()
     }
@@ -94,7 +96,9 @@ impl Cnf {
     }
 }
 
-// TODO: review this
+// weakness returns the cardinality of the extension,
+// used as a measure of w-max, where true for more states
+// means more generalized solution
 pub fn weakness(cnf: &Cnf, universe: &[State]) -> usize {
     universe.iter().filter(|&&s| cnf.eval(s)).count()
 }
@@ -112,7 +116,6 @@ fn states_eq(a: &[State], b: &[State]) -> bool {
     a_sorted == b_sorted
 }
 
-// TODO: find better naming
 fn state_eq_except_target(a: State, b: State, target: u8) -> bool {
     // build a mask for target: 0 at target and 1 everywhere else
     let mask: Bits = !(Bits::from(1u8) << target);
@@ -134,7 +137,6 @@ fn reconstruct_decision(
     situations: &[State],
     target: u8,
 ) -> Vec<State> {
-    // TODO: find better naming
     let true_states_in_universe = extension(cnf, universe);
     let mut result = Vec::new();
 
