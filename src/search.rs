@@ -261,8 +261,9 @@ pub fn best_first_policy(
 mod tests {
     use super::*;
     use crate::cnf::{Clause, Literal};
+    use crate::state::Bits;
 
-    fn test_state(bits: u8) -> State {
+    fn test_state(bits: Bits) -> State {
         State(bits)
     }
 

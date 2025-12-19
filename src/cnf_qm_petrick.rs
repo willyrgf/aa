@@ -564,31 +564,32 @@ mod tests {
         let (implicants, literals) = cost_of_combo(&combo, &primes);
 
         assert_eq!(implicants, 1);
-        assert_eq!(literals, 8); // 8 care bit positions (all bits, no don't-cares)
+        assert_eq!(literals, State::BITS as usize); // all bits, no don't-cares
     }
 
     #[test]
     fn test_cost_of_combo_multiple_terms() {
+        let bits = State::BITS as usize;
         let primes = vec![
             Term {
                 bits: 0b1010,
                 mask: 0b0000,
-            }, // 8 literals (no don't-cares)
+            }, // bits literals (no don't-cares)
             Term {
                 bits: 0b1100,
                 mask: 0b0001,
-            }, // 7 literals (1 don't-care)
+            }, // bits-1 literals (1 don't-care)
             Term {
                 bits: 0b0000,
                 mask: 0b1111,
-            }, // 4 literals (4 don't-cares)
+            }, // bits-4 literals (4 don't-cares)
         ];
         let combo = vec![0, 1, 2];
 
         let (implicants, literals) = cost_of_combo(&combo, &primes);
 
         assert_eq!(implicants, 3);
-        assert_eq!(literals, 19); // 8 + 7 + 4
+        assert_eq!(literals, bits + (bits - 1) + (bits - 4)); // bits + (bits-1) + (bits-4)
     }
 
     #[test]
@@ -615,14 +616,14 @@ mod tests {
 
         let clause = term_to_clause(term);
 
-        // should have 8 literals (for 8-bit state)
-        assert_eq!(clause.literals().len(), 8);
+        // should have State::BITS literals
+        assert_eq!(clause.literals().len(), State::BITS as usize);
 
         // bit 0 is 0, so literal should be (var=0, neg=false)
         // bit 1 is 1, so literal should be (var=1, neg=true)
         // bit 2 is 0, so literal should be (var=2, neg=false)
         // bit 3 is 1, so literal should be (var=3, neg=true)
-        // bits 4-7 are 0, so literals should be (var=4-7, neg=false)
+        // bits 4+ are 0, so literals should be (var=4+, neg=false)
         let lits = clause.literals();
         assert_eq!(lits[0].var, 0);
         assert_eq!(lits[0].neg, false);
@@ -632,7 +633,7 @@ mod tests {
         assert_eq!(lits[2].neg, false);
         assert_eq!(lits[3].var, 3);
         assert_eq!(lits[3].neg, true);
-        for i in 4..8 {
+        for i in 4..State::BITS as usize {
             assert_eq!(lits[i].var, i as u8);
             assert_eq!(lits[i].neg, false);
         }
@@ -648,8 +649,8 @@ mod tests {
 
         let clause = term_to_clause(term);
 
-        // should have 7 literals (8 bits - 1 dont-care)
-        assert_eq!(clause.literals().len(), 7);
+        // should have State::BITS - 1 literals (1 dont-care)
+        assert_eq!(clause.literals().len(), State::BITS as usize - 1);
 
         let lits = clause.literals();
         // bit 0 is 0, so literal should be (var=0, neg=false)
@@ -662,8 +663,8 @@ mod tests {
         // bit 3 is 1, so literal should be (var=3, neg=true)
         assert_eq!(lits[2].var, 3);
         assert_eq!(lits[2].neg, true);
-        // bits 4-7 are 0, so literals should be (var=4-7, neg=false)
-        for i in 3..7 {
+        // bits 4+ are 0, so literals should be (var=4+, neg=false)
+        for i in 3..(State::BITS as usize - 1) {
             assert_eq!(lits[i].var, (i + 1) as u8);
             assert_eq!(lits[i].neg, false);
         }
@@ -671,10 +672,10 @@ mod tests {
 
     #[test]
     fn test_term_to_clause_all_dont_care() {
-        // all bits are dont-care (all 8 bits)
+        // all bits are dont-care (all State::BITS bits)
         let term = Term {
             bits: 0b0000,
-            mask: 0b11111111,
+            mask: Bits::MAX,
         };
 
         let clause = term_to_clause(term);
