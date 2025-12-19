@@ -2,32 +2,39 @@ use std::fmt;
 
 pub type Bits = u16;
 
+// number of bits actually used from the bits type
+// must be even and <= Bits::BITS
+// examples: 8 for u8, 12 for u16 (using only 12 of 16 bits),
+// 16 for u16, 24 for u32, etc
+pub const BITS_USED: u32 = 12;
+
 fn input_binary_mask() -> Bits {
-    // Input operands use Bits::BITS / 4 bits each
-    let input_bits = Bits::BITS / 4;
+    // input operands use BITS_USED / 4 bits each
+    let input_bits = BITS_USED / 4;
     (1 << input_bits) - 1
 }
 
 fn output_binary_mask() -> Bits {
-    // Output uses Bits::BITS / 2 bits
-    let output_bits = Bits::BITS / 2;
+    // output uses BITS_USED / 2 bits
+    let output_bits = BITS_USED / 2;
     (1 << output_bits) - 1
 }
 
 fn input_shift_size(input_num: u8) -> u8 {
-    (Bits::BITS as u8 / 4) * input_num
+    (BITS_USED as u8 / 4) * input_num
 }
 
 fn output_shift_size() -> u8 {
-    (Bits::BITS / 2) as u8
+    (BITS_USED / 2) as u8
 }
 
-// State a single byte encoding all possible universes 0-255,
-// where in z = task(x,y), so the 8 bits are x = 0-1; y = 2-3; z = 4-7
+// State encoding all possible universes in BITS_USED bits,
+// where z = task(x,y). The bits are divided as:
+// - x uses bits [0, BITS_USED/4)
+// - y uses bits [BITS_USED/4, BITS_USED/2)
+// - z uses bits [BITS_USED/2, BITS_USED)
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Hash)]
 pub struct State(pub Bits);
-
-// encode returns a State u8: 7-4 = z; 3-2 = y; 0-1 = x
 pub fn encode(x: Bits, y: Bits, z: Bits) -> State {
     State(
         ((x & input_binary_mask()) << input_shift_size(0))
@@ -37,7 +44,7 @@ pub fn encode(x: Bits, y: Bits, z: Bits) -> State {
 }
 
 impl State {
-    pub const BITS: u32 = Bits::BITS;
+    pub const BITS: u32 = BITS_USED;
 
     pub fn decode(&self) -> (Bits, Bits, Bits) {
         (
@@ -89,11 +96,16 @@ impl State {
         encode(x, y, z)
     }
 
-    // universe return all representable bit patterns.
-    // (e.g., u8 is 0..255)
+    // universe return all representable bit patterns
+    // only iterates through valid bit patterns (0 to 2^BITS_USED - 1)
     // would be impossibly big for > u32.
     pub fn universe() -> impl Iterator<Item = State> {
-        (Bits::MIN..=Bits::MAX).map(State)
+        let max_value = if BITS_USED >= Bits::BITS {
+            Bits::MAX
+        } else {
+            (1 << BITS_USED) - 1
+        };
+        (Bits::MIN..=max_value).map(State)
     }
 }
 
@@ -104,40 +116,176 @@ impl fmt::Display for State {
     }
 }
 
-// #[test]
-// fn test_encode() {
-//     assert_eq!(encode(2u8, 2u8, 4u8).0, 74u8);
-//     assert_eq!(encode(1u8, 1u8, 8u8).0, 133u8);
-//     assert_eq!(encode(3u8, 3u8, 15u8).0, 255u8);
-//     assert_eq!(encode(3u8, 3u8, 15u8).decode(), (3u8, 3u8, 15u8));
-// }
+#[test]
+fn test_encode_decode_roundtrip() {
+    // test that decode(encode(x, y, z)) == (x, y, z) for all valid inputs
+    let max_input = (1 << (BITS_USED / 4)) - 1;
+    let max_output = (1 << (BITS_USED / 2)) - 1;
+
+    for x in 0..=max_input {
+        for y in 0..=max_input {
+            for z in 0..=max_output {
+                let state = encode(x, y, z);
+                assert_eq!(
+                    state.decode(),
+                    (x, y, z),
+                    "round-trip failed for x={}, y={}, z={}",
+                    x,
+                    y,
+                    z
+                );
+            }
+        }
+    }
+}
 
 #[test]
-fn test_decode() {
+fn test_boundaries() {
+    let max_input = (1 << (BITS_USED / 4)) - 1;
+    let max_output = (1 << (BITS_USED / 2)) - 1;
+
+    // test zero
     assert_eq!(encode(0, 0, 0).decode(), (0, 0, 0));
-    assert_eq!(encode(1, 1, 1).decode(), (1, 1, 1));
-    assert_eq!(encode(2, 2, 4).decode(), (2, 2, 4));
-    assert_eq!(encode(1, 1, 8).decode(), (1, 1, 8));
-    assert_eq!(encode(3, 3, 15).decode(), (3, 3, 15));
-    assert_eq!(encode(0, 3, 0).decode(), (0, 3, 0));
-    assert_eq!(encode(1, 0, 15).decode(), (1, 0, 15));
-    assert_eq!(encode(3, 1, 7).decode(), (3, 1, 7));
-    assert_eq!(encode(2, 3, 10).decode(), (2, 3, 10));
-    assert_eq!(encode(3, 2, 12).decode(), (3, 2, 12));
+
+    // test max values
+    assert_eq!(
+        encode(max_input, max_input, max_output).decode(),
+        (max_input, max_input, max_output)
+    );
+
+    // test overflow masking
+    let overflow_input = max_input + 1;
+    let overflow_output = max_output + 1;
+    let state = encode(overflow_input, overflow_input, overflow_output);
+    let (x, y, z) = state.decode();
+    assert_eq!(x, overflow_input & max_input);
+    assert_eq!(y, overflow_input & max_input);
+    assert_eq!(z, overflow_output & max_output);
+}
+
+#[test]
+fn test_add_operation() {
+    let max_input = (1 << (BITS_USED / 4)) - 1;
+    let max_output = (1 << (BITS_USED / 2)) - 1;
+
+    for x in 0..=max_input {
+        for y in 0..=max_input {
+            let state = encode(x, y, 0);
+            let result = state.add();
+            let (rx, ry, rz) = result.decode();
+
+            assert_eq!(rx, x, "x should be preserved in add");
+            assert_eq!(ry, y, "y should be preserved in add");
+            assert_eq!(rz, (x + y) & max_output, "z should be (x + y) masked");
+        }
+    }
+}
+
+#[test]
+fn test_mul_operation() {
+    let max_input = (1 << (BITS_USED / 4)) - 1;
+    let max_output = (1 << (BITS_USED / 2)) - 1;
+
+    for x in 0..=max_input {
+        for y in 0..=max_input {
+            let state = encode(x, y, 0);
+            let result = state.mul();
+            let (rx, ry, rz) = result.decode();
+
+            assert_eq!(rx, x, "x should be preserved in mul");
+            assert_eq!(ry, y, "y should be preserved in mul");
+            assert_eq!(
+                rz,
+                x.wrapping_mul(y) & max_output,
+                "z should be (x * y) masked"
+            );
+        }
+    }
+}
+
+#[test]
+fn test_xor_operation() {
+    let max_input = (1 << (BITS_USED / 4)) - 1;
+    let max_output = (1 << (BITS_USED / 2)) - 1;
+
+    for x in 0..=max_input {
+        for y in 0..=max_input {
+            let state = encode(x, y, 0);
+            let result = state.xor();
+            let (rx, ry, rz) = result.decode();
+
+            assert_eq!(rx, x, "x should be preserved in xor");
+            assert_eq!(ry, y, "y should be preserved in xor");
+            assert_eq!(rz, (x ^ y) & max_output, "z should be (x ^ y) masked");
+        }
+    }
+}
+
+#[test]
+fn test_nand_operation() {
+    let max_input = (1 << (BITS_USED / 4)) - 1;
+    let max_output = (1 << (BITS_USED / 2)) - 1;
+
+    for x in 0..=max_input {
+        for y in 0..=max_input {
+            let state = encode(x, y, 0);
+            let result = state.nand();
+            let (rx, ry, rz) = result.decode();
+
+            assert_eq!(rx, x, "x should be preserved in nand");
+            assert_eq!(ry, y, "y should be preserved in nand");
+            assert_eq!(rz, !(x & y) & max_output, "z should be !(x & y) masked");
+        }
+    }
+}
+
+#[test]
+fn test_keepx_operation() {
+    let max_input = (1 << (BITS_USED / 4)) - 1;
+
+    for x in 0..=max_input {
+        for y in 0..=max_input {
+            let state = encode(x, y, 0);
+            let result = state.keepx();
+            let (rx, ry, rz) = result.decode();
+
+            assert_eq!(rx, x, "x should be preserved in keepx");
+            assert_eq!(ry, y, "y should be preserved in keepx");
+            assert_eq!(rz, x, "z should equal x in keepx");
+        }
+    }
+}
+
+#[test]
+fn test_universe_coverage() {
+    let expected_count = if BITS_USED >= Bits::BITS {
+        (Bits::MAX as usize) + 1
+    } else {
+        1 << BITS_USED
+    };
+
+    let count = State::universe().count();
+    assert_eq!(
+        count, expected_count,
+        "Universe should contain 2^{} states",
+        BITS_USED
+    );
 }
 
 #[test]
 fn test_display() {
+    // test basic display format
     assert_eq!(State(0).to_string(), "(x = 0, y = 0, z = 0)");
     assert_eq!(encode(0, 0, 0).to_string(), "(x = 0, y = 0, z = 0)");
 
-    assert_eq!(encode(2, 2, 4).to_string(), "(x = 2, y = 2, z = 4)");
-    assert_eq!(encode(1, 1, 8).to_string(), "(x = 1, y = 1, z = 8)");
+    // test that display matches decoded values
+    let max_input = (1 << (BITS_USED / 4)) - 1;
+    let max_output = (1 << (BITS_USED / 2)) - 1;
 
-    assert_eq!(encode(3, 3, 15).to_string(), "(x = 3, y = 3, z = 15)");
-
-    assert_eq!(encode(0, 3, 0).to_string(), "(x = 0, y = 3, z = 0)");
-    assert_eq!(encode(1, 0, 15).to_string(), "(x = 1, y = 0, z = 15)");
-    assert_eq!(encode(3, 1, 7).to_string(), "(x = 3, y = 1, z = 7)");
-    assert_eq!(encode(2, 3, 10).to_string(), "(x = 2, y = 3, z = 10)");
+    let state = encode(max_input, max_input, max_output);
+    let (x, y, z) = state.decode();
+    assert_eq!(
+        state.to_string(),
+        format!("(x = {}, y = {}, z = {})", x, y, z)
+    );
 }

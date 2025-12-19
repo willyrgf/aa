@@ -5,7 +5,7 @@ use crate::task::Task;
 // generate_truth_decision_table generate all possible truth states
 // for a task based on state size. known as `dn`
 pub fn generate_truth_decision_table(task: Task) -> Vec<State> {
-    // Each operand uses State::BITS / 4 bits, so can represent 2^(State::BITS/4) values
+    // each operand uses state::bits / 4 bits, so can represent 2^(state::bits/4) values
     let operand_size = 1 << (State::BITS / 4);
     let mut table = Vec::with_capacity(operand_size * operand_size);
 
