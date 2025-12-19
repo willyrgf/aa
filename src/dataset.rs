@@ -1,5 +1,5 @@
 use crate::rng::SplitMix64;
-use crate::state::{Bits, State, encode};
+use crate::state::{BitStorage, Bits, State, StateGeneric, encode};
 use crate::task::Task;
 
 // generate_truth_decision_table generate all possible truth states
@@ -13,6 +13,24 @@ pub fn generate_truth_decision_table(task: Task) -> Vec<State> {
         for y in 0..operand_size {
             let s = encode(x as Bits, y as Bits, Bits::MIN);
             table.push(task.apply(&s));
+        }
+    }
+
+    table
+}
+
+pub fn generate_truth_decision_table_generic<B: BitStorage>(task: Task) -> Vec<StateGeneric<B>> {
+    let operand_size = 1usize << (B::BITS_USED / 4);
+    let mut table = Vec::with_capacity(operand_size * operand_size);
+
+    for x in 0..operand_size {
+        for y in 0..operand_size {
+            let s = encode::<B>(
+                B::from_usize(x).unwrap(),
+                B::from_usize(y).unwrap(),
+                B::from_usize(0).unwrap(),
+            );
+            table.push(task.apply_generic(&s));
         }
     }
 

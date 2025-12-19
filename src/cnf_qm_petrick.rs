@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use crate::{
     cnf::{Clause, Cnf, Literal},
-    state::{Bits, State},
+    state::{Bits, State, State16},
 };
 
 // QM (Quine–McCluskey)
@@ -465,7 +465,7 @@ mod tests {
             bits: 0b1010,
             mask: 0b0000,
         };
-        let state = State(0b1010);
+        let state = State16::from(0b1010);
 
         assert!(term_covers(&term, state));
     }
@@ -479,12 +479,12 @@ mod tests {
         };
 
         // should cover both 1010 and 1000
-        assert!(term_covers(&term, State(0b1010)));
-        assert!(term_covers(&term, State(0b1000)));
+        assert!(term_covers(&term, State16::from(0b1010)));
+        assert!(term_covers(&term, State16::from(0b1000)));
 
         // should not cover 0010 or 0000
-        assert!(!term_covers(&term, State(0b0010)));
-        assert!(!term_covers(&term, State(0b0000)));
+        assert!(!term_covers(&term, State16::from(0b0010)));
+        assert!(!term_covers(&term, State16::from(0b0000)));
     }
 
     #[test]
@@ -493,7 +493,7 @@ mod tests {
             bits: 0b1010,
             mask: 0b0000,
         };
-        let state = State(0b1000);
+        let state = State16::from(0b1000);
 
         assert!(!term_covers(&term, state));
     }
@@ -502,7 +502,7 @@ mod tests {
     fn test_qm_prime_implicants_simple() {
         // false states: 0b00, 0b01
         // these should combine to 0b0- (bit 0 is dont-care)
-        let false_states = vec![State(0b00), State(0b01)];
+        let false_states = vec![State16::from(0b00), State16::from(0b01)];
 
         let primes = qm_prime_implicants(&false_states);
 
@@ -515,7 +515,7 @@ mod tests {
     #[test]
     fn test_qm_prime_implicants_no_combination() {
         // false states that differ in more than one bit
-        let false_states = vec![State(0b0000), State(0b1111)];
+        let false_states = vec![State16::from(0b0000), State16::from(0b1111)];
 
         let primes = qm_prime_implicants(&false_states);
 
@@ -529,7 +529,7 @@ mod tests {
         // 000 + 001 -> 00-
         // 010 + 011 -> 01-
         // 00- + 01- -> 0--
-        let false_states = vec![State(0b000), State(0b001), State(0b010), State(0b011)];
+        let false_states = vec![State16::from(0b000), State16::from(0b001), State16::from(0b010), State16::from(0b011)];
 
         let primes = qm_prime_implicants(&false_states);
 
@@ -545,7 +545,7 @@ mod tests {
         // false states: 0b100, 0b101, 0b110
         // 100 + 101 -> 10-
         // 110 cannot combine with the result
-        let false_states = vec![State(0b100), State(0b101), State(0b110)];
+        let false_states = vec![State16::from(0b100), State16::from(0b101), State16::from(0b110)];
 
         let primes = qm_prime_implicants(&false_states);
 
@@ -687,7 +687,7 @@ mod tests {
     #[test]
     fn test_select_implicants_all_essential() {
         // create a scenario where each false state is covered by exactly one prime
-        let false_states = vec![State(0b00), State(0b11)];
+        let false_states = vec![State16::from(0b00), State16::from(0b11)];
         let primes = vec![
             Term {
                 bits: 0b00,
@@ -710,7 +710,7 @@ mod tests {
     #[test]
     fn test_select_implicants_with_overlap() {
         // false states that can be covered by overlapping primes
-        let false_states = vec![State(0b00), State(0b01)];
+        let false_states = vec![State16::from(0b00), State16::from(0b01)];
         let primes = vec![
             Term {
                 bits: 0b00,
@@ -800,7 +800,7 @@ mod tests {
     #[test]
     fn test_simplified_cnf_empty_false_states() {
         // all states are positive (no false states)
-        let universe = vec![State(0b00), State(0b01), State(0b10), State(0b11)];
+        let universe = vec![State16::from(0b00), State16::from(0b01), State16::from(0b10), State16::from(0b11)];
         let positives = universe.clone();
 
         let cnf = simplified_cnf(&positives, &universe, 0);
@@ -812,8 +812,8 @@ mod tests {
     #[test]
     fn test_simplified_cnf_basic() {
         // simple example with some false states
-        let universe = vec![State(0b00), State(0b01), State(0b10), State(0b11)];
-        let positives = vec![State(0b10), State(0b11)];
+        let universe = vec![State16::from(0b00), State16::from(0b01), State16::from(0b10), State16::from(0b11)];
+        let positives = vec![State16::from(0b10), State16::from(0b11)];
         let target = 1;
 
         let cnf = simplified_cnf(&positives, &universe, target);
@@ -829,16 +829,16 @@ mod tests {
     fn test_simplified_cnf_filters_target_var() {
         // test that only clauses with target variable are included
         let universe = vec![
-            State(0b000),
-            State(0b001),
-            State(0b010),
-            State(0b011),
-            State(0b100),
-            State(0b101),
-            State(0b110),
-            State(0b111),
+            State16::from(0b000),
+            State16::from(0b001),
+            State16::from(0b010),
+            State16::from(0b011),
+            State16::from(0b100),
+            State16::from(0b101),
+            State16::from(0b110),
+            State16::from(0b111),
         ];
-        let positives = vec![State(0b111)];
+        let positives = vec![State16::from(0b111)];
         let target = 2;
 
         let cnf = simplified_cnf(&positives, &universe, target);

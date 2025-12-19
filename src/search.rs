@@ -5,7 +5,7 @@ use std::{
 
 use crate::{
     cnf::{Cnf, is_sufficient, weakness},
-    state::State,
+    state::{State, State16},
 };
 
 // Search module is a combinatorial search over subsets of clauses
@@ -264,7 +264,7 @@ mod tests {
     use crate::state::Bits;
 
     fn test_state(bits: Bits) -> State {
-        State(bits)
+        State16::from(bits)
     }
 
     fn make_simple_cnf() -> Cnf {

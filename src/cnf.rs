@@ -1,4 +1,4 @@
-use crate::state::{Bits, State};
+use crate::state::{BitStorage, Bits, State, State16, StateGeneric};
 use std::{collections::HashSet, fmt};
 
 #[derive(Debug, Clone)]
@@ -58,7 +58,7 @@ impl fmt::Display for Cnf {
 }
 
 impl Literal {
-    pub fn eval(&self, s: State) -> bool {
+    pub fn eval<B: BitStorage>(&self, s: StateGeneric<B>) -> bool {
         let x_var = s.get_bit(self.var);
         if self.neg { !x_var } else { x_var }
     }
@@ -66,7 +66,7 @@ impl Literal {
 
 impl Clause {
     // eval at Clause level: Literal OR Literal
-    pub fn eval(&self, s: State) -> bool {
+    pub fn eval<B: BitStorage>(&self, s: StateGeneric<B>) -> bool {
         self.0.iter().any(|lit| lit.eval(s))
     }
 
@@ -87,7 +87,7 @@ impl Cnf {
     }
 
     // eval at CNF level: Clause AND Clause
-    pub fn eval(&self, s: State) -> bool {
+    pub fn eval<B: BitStorage>(&self, s: StateGeneric<B>) -> bool {
         self.0.iter().all(|clause| clause.eval(s))
     }
 
@@ -198,7 +198,7 @@ mod tests {
     use super::*;
 
     fn test_state(bits: u8) -> State {
-        State(bits as Bits)
+        State16::from(bits as Bits)
     }
 
     #[test]
