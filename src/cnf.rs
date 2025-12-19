@@ -1,17 +1,18 @@
 use crate::state::{Bits, State};
+use serde::{Deserialize, Serialize};
 use std::{collections::HashSet, fmt};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Literal {
     pub var: u8,   // x_var = State.0[var], which bit in the state
     pub neg: bool, // true means !x_var
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Clause(pub Vec<Literal>);
 
 // CNF used as boolean classifier to check policies satisfiability (SAT)
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Cnf(pub Vec<Clause>);
 
 impl fmt::Display for Literal {

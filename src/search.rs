@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use std::{
     collections::{BinaryHeap, HashSet},
     time::Instant,
@@ -15,7 +16,7 @@ use crate::{
 //   sufficient (reconstructs the same decisions), and
 //   good under some objective (weakness, simplicity, etc.).
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub enum Objective {
     Weakness,
     Simplicity,

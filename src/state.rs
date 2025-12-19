@@ -1,10 +1,11 @@
+use serde::{Deserialize, Serialize};
 use std::fmt;
 
 pub type Bits = u8;
 
 // State a single byte encoding all possible universes 0-255,
 // where in z = task(x,y), so the 8 bits are x = 0-1; y = 2-3; z = 4-7
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
 pub struct State(pub Bits);
 
 // encode returns a State u8: 7-4 = z; 3-2 = y; 0-1 = x
