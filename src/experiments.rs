@@ -1,4 +1,5 @@
 use std::{
+    fmt,
     sync::{Arc, Mutex},
     thread,
 };
@@ -50,6 +51,20 @@ pub struct ExpCtx {
     pub sample_size: usize,
     pub trials: Vec<Trial>,
     pub config: ExpConfig,
+}
+
+impl fmt::Display for ExpCtx {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "ExpCtx: task({}), universe_size({}), dn_size({}), sample_size({}), trials_size({})",
+            self.task_label,
+            self.universe.len(),
+            self.dn.len(),
+            self.sample_size,
+            self.trials.len()
+        )
+    }
 }
 
 // generate all experiment contexts for the given tasks and sample sizes
@@ -209,8 +224,8 @@ pub fn run_experiments(tasks: &[Task], sample_sizes: &[usize], trials_per_sample
     println!("Threads      : {}", config.num_threads);
 
     let contexts = generate_experiment_contexts(tasks, sample_sizes, trials_per_sample, config);
-
-    println!("\nGenerated {} experiment contexts", contexts.len());
+    vprintln!(1, "# Exp Ctx    : {}", contexts.len());
+    contexts.iter().for_each(|ctx| vprintln!(3, "{}", ctx));
 
     let mut current_task = String::new();
     for ctx in &contexts {

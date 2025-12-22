@@ -8,12 +8,6 @@ pub fn generate_truth_decision_table(task: Task) -> Vec<State> {
     // each operand uses state::bits / 4 bits, so can represent 2^(state::bits/4) values
     let operand_size = 1 << (State::BITS / 4);
     let mut table = Vec::with_capacity(operand_size * operand_size);
-    vprintln!(
-        2,
-        "generate_truth_decision_table(): op: {} table: {}",
-        operand_size,
-        table.len()
-    );
 
     for x in 0..operand_size {
         for y in 0..operand_size {

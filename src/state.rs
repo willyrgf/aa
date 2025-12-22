@@ -1,12 +1,12 @@
 use std::fmt;
 
-pub type Bits = u16;
+pub type Bits = u8;
 
 // number of bits actually used from the bits type
 // must be even and <= Bits::BITS
 // examples: 8 for u8, 12 for u16 (using only 12 of 16 bits),
 // 16 for u16, 24 for u32, etc
-pub const BITS_USED: u32 = 12;
+pub const BITS_USED: u32 = 8;
 
 fn input_binary_mask() -> Bits {
     // input operands use BITS_USED / 4 bits each
