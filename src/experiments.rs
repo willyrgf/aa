@@ -240,5 +240,6 @@ pub fn run_experiments(tasks: &[Task], sample_sizes: &[usize], trials_per_sample
         println!("\n=== |D_k| = {} ===", result.sample_size);
         print_policy_stats("w-max", &result.weakness_stats, universe_size as f32);
         print_policy_stats("simp-max", &result.simplicity_stats, universe_size as f32);
+        break;
     }
 }

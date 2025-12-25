@@ -30,7 +30,7 @@ impl fmt::Display for Clause {
             return write!(f, "");
         }
 
-        write!(f, "(")?;
+        write!(f, "Clause(")?;
         for (i, lit) in self.0.iter().enumerate() {
             if i > 0 {
                 write!(f, " | ")?;

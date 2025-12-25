@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::{collections::HashSet, fmt};
 
 use crate::{
     cnf::{Clause, Cnf, Literal},
@@ -35,6 +35,19 @@ impl Term {
     /// Used for calculating the cost in Petrick's method.
     pub fn literal_count(&self) -> usize {
         (State::BITS as usize) - self.mask.count_ones() as usize
+    }
+}
+
+impl fmt::Display for Term {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let width = (State::BITS + 2) as usize; // usize
+        write!(
+            f,
+            "Term(bits: {:#0width$b}, mask: {:#0width$b})",
+            self.bits,
+            self.mask,
+            width = width
+        )
     }
 }
 
@@ -317,12 +330,51 @@ pub fn simplified_cnf(positives: &[State], universe: &[State], target: u8) -> Cn
         return Cnf(Vec::new());
     }
 
+    vprintln!(
+        2,
+        "=== Positive samples; len: {} target: {} ===",
+        positives.len(),
+        target
+    );
+    positives.iter().for_each(|p| vprintln!(2, "{}", p));
+    vprintln!(
+        4,
+        "=== Negative samples; len: {} target: {} ===",
+        false_states.len(),
+        target
+    );
+    false_states.iter().for_each(|s| vprintln!(4, "{}", s));
+
     let primes = qm_prime_implicants(&false_states);
+    vprintln!(
+        4,
+        "=== All primes; len: {} target: {} ===",
+        primes.len(),
+        target
+    );
+    primes.iter().for_each(|p| vprintln!(4, "{}", p));
+
     let implicants = select_implicants(&false_states, &primes);
-    let mut clauses: Vec<Clause> = implicants.into_iter().map(term_to_clause).collect();
+    let mut clauses: Vec<Clause> = implicants.clone().into_iter().map(term_to_clause).collect();
+    vprintln!(
+        2,
+        "=== Implicants and its clauses; impl.len: {} clauses.len: {} ===",
+        implicants.len(),
+        clauses.len(),
+    );
+    assert_eq!(implicants.len(), clauses.len());
+    for idx in 0..clauses.len() {
+        vprintln!(2, "{} -> {}", implicants[idx], clauses[idx]);
+    }
 
     clauses.retain(|clause| clause.literals().iter().any(|lit| lit.var == target));
-
+    vprintln!(
+        2,
+        "=== Clauses matching target; len: {} target: {} ===",
+        clauses.len(),
+        target
+    );
+    clauses.iter().for_each(|c| vprintln!(2, "{}", c));
     Cnf(clauses)
 }
 
@@ -624,18 +676,18 @@ mod tests {
         // bit 2 is 0, so literal should be (var=2, neg=false)
         // bit 3 is 1, so literal should be (var=3, neg=true)
         // bits 4+ are 0, so literals should be (var=4+, neg=false)
-        let lits = clause.literals();
-        assert_eq!(lits[0].var, 0);
-        assert_eq!(lits[0].neg, false);
-        assert_eq!(lits[1].var, 1);
-        assert_eq!(lits[1].neg, true);
-        assert_eq!(lits[2].var, 2);
-        assert_eq!(lits[2].neg, false);
-        assert_eq!(lits[3].var, 3);
-        assert_eq!(lits[3].neg, true);
+        let literals = clause.literals();
+        assert_eq!(literals[0].var, 0);
+        assert_eq!(literals[0].neg, false);
+        assert_eq!(literals[1].var, 1);
+        assert_eq!(literals[1].neg, true);
+        assert_eq!(literals[2].var, 2);
+        assert_eq!(literals[2].neg, false);
+        assert_eq!(literals[3].var, 3);
+        assert_eq!(literals[3].neg, true);
         for i in 4..State::BITS as usize {
-            assert_eq!(lits[i].var, i as u8);
-            assert_eq!(lits[i].neg, false);
+            assert_eq!(literals[i].var, i as u8);
+            assert_eq!(literals[i].neg, false);
         }
     }
 
@@ -652,21 +704,21 @@ mod tests {
         // should have State::BITS - 1 literals (1 dont-care)
         assert_eq!(clause.literals().len(), State::BITS as usize - 1);
 
-        let lits = clause.literals();
+        let literals = clause.literals();
         // bit 0 is 0, so literal should be (var=0, neg=false)
-        assert_eq!(lits[0].var, 0);
-        assert_eq!(lits[0].neg, false);
+        assert_eq!(literals[0].var, 0);
+        assert_eq!(literals[0].neg, false);
         // bit 1 is dont-care, so it should be skipped
         // bit 2 is 0, so literal should be (var=2, neg=false)
-        assert_eq!(lits[1].var, 2);
-        assert_eq!(lits[1].neg, false);
+        assert_eq!(literals[1].var, 2);
+        assert_eq!(literals[1].neg, false);
         // bit 3 is 1, so literal should be (var=3, neg=true)
-        assert_eq!(lits[2].var, 3);
-        assert_eq!(lits[2].neg, true);
+        assert_eq!(literals[2].var, 3);
+        assert_eq!(literals[2].neg, true);
         // bits 4+ are 0, so literals should be (var=4+, neg=false)
         for i in 3..(State::BITS as usize - 1) {
-            assert_eq!(lits[i].var, (i + 1) as u8);
-            assert_eq!(lits[i].neg, false);
+            assert_eq!(literals[i].var, (i + 1) as u8);
+            assert_eq!(literals[i].neg, false);
         }
     }
 
