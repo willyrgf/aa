@@ -333,13 +333,13 @@ mod tests {
         let cnf = Cnf(vec![]);
         assert_eq!(cnf.description_length(), 0);
 
-        // (x0) is 4 chars
+        // Clause(x0) is 10 chars
         let cnf = Cnf(vec![Clause(vec![Literal { var: 0, neg: false }])]);
-        assert_eq!(cnf.description_length(), 4);
+        assert_eq!(cnf.description_length(), 10);
 
-        // (!x0) is 5 chars
+        // Clause(!x0) is 11 chars
         let cnf = Cnf(vec![Clause(vec![Literal { var: 0, neg: true }])]);
-        assert_eq!(cnf.description_length(), 5);
+        assert_eq!(cnf.description_length(), 11);
     }
 
     #[test]
@@ -566,18 +566,18 @@ mod tests {
 
         // single positive literal: x0
         let cnf = Cnf(vec![Clause(vec![Literal { var: 0, neg: false }])]);
-        assert_eq!(cnf.to_string(), "(x0)");
+        assert_eq!(cnf.to_string(), "Clause(x0)");
 
         // single negative literal: !x5
         let cnf = Cnf(vec![Clause(vec![Literal { var: 5, neg: true }])]);
-        assert_eq!(cnf.to_string(), "(!x5)");
+        assert_eq!(cnf.to_string(), "Clause(!x5)");
 
         // disjunction with two literals: (x0 | x1)
         let cnf = Cnf(vec![Clause(vec![
             Literal { var: 0, neg: false },
             Literal { var: 1, neg: false },
         ])]);
-        assert_eq!(cnf.to_string(), "(x0 | x1)");
+        assert_eq!(cnf.to_string(), "Clause(x0 | x1)");
 
         // disjunction with three literals: (x0 | x1 | x2)
         let cnf = Cnf(vec![Clause(vec![
@@ -585,7 +585,7 @@ mod tests {
             Literal { var: 1, neg: false },
             Literal { var: 2, neg: false },
         ])]);
-        assert_eq!(cnf.to_string(), "(x0 | x1 | x2)");
+        assert_eq!(cnf.to_string(), "Clause(x0 | x1 | x2)");
 
         // mixed negations: (x0 | !x1 | x2 | !x3)
         let cnf = Cnf(vec![Clause(vec![
@@ -594,14 +594,14 @@ mod tests {
             Literal { var: 2, neg: false },
             Literal { var: 3, neg: true },
         ])]);
-        assert_eq!(cnf.to_string(), "(x0 | !x1 | x2 | !x3)");
+        assert_eq!(cnf.to_string(), "Clause(x0 | !x1 | x2 | !x3)");
 
         // conjunction of two clauses: (x0) & (x1)
         let cnf = Cnf(vec![
             Clause(vec![Literal { var: 0, neg: false }]),
             Clause(vec![Literal { var: 1, neg: false }]),
         ]);
-        assert_eq!(cnf.to_string(), "(x0) & (x1)");
+        assert_eq!(cnf.to_string(), "Clause(x0) & Clause(x1)");
 
         // three clauses: (x0) & (x1) & (x2)
         let cnf = Cnf(vec![
@@ -609,7 +609,7 @@ mod tests {
             Clause(vec![Literal { var: 1, neg: false }]),
             Clause(vec![Literal { var: 2, neg: false }]),
         ]);
-        assert_eq!(cnf.to_string(), "(x0) & (x1) & (x2)");
+        assert_eq!(cnf.to_string(), "Clause(x0) & Clause(x1) & Clause(x2)");
 
         // complex formula: (x0 | x1) & (!x2 | x3)
         let cnf = Cnf(vec![
@@ -622,7 +622,7 @@ mod tests {
                 Literal { var: 3, neg: false },
             ]),
         ]);
-        assert_eq!(cnf.to_string(), "(x0 | x1) & (!x2 | x3)");
+        assert_eq!(cnf.to_string(), "Clause(x0 | x1) & Clause(!x2 | x3)");
 
         // more complex: (x0 | !x1 | x2) & (x3) & (!x4 | !x5)
         let cnf = Cnf(vec![
@@ -637,7 +637,7 @@ mod tests {
                 Literal { var: 5, neg: true },
             ]),
         ]);
-        assert_eq!(cnf.to_string(), "(x0 | !x1 | x2) & (x3) & (!x4 | !x5)");
+        assert_eq!(cnf.to_string(), "Clause(x0 | !x1 | x2) & Clause(x3) & Clause(!x4 | !x5)");
 
         // all negated literals: (!x0 | !x1) & (!x2)
         let cnf = Cnf(vec![
@@ -647,7 +647,7 @@ mod tests {
             ]),
             Clause(vec![Literal { var: 2, neg: true }]),
         ]);
-        assert_eq!(cnf.to_string(), "(!x0 | !x1) & (!x2)");
+        assert_eq!(cnf.to_string(), "Clause(!x0 | !x1) & Clause(!x2)");
 
         // clause with many literals: (x0 | x1 | x2 | x3 | x4 | x5)
         let cnf = Cnf(vec![Clause(vec![
@@ -658,7 +658,7 @@ mod tests {
             Literal { var: 4, neg: false },
             Literal { var: 5, neg: false },
         ])]);
-        assert_eq!(cnf.to_string(), "(x0 | x1 | x2 | x3 | x4 | x5)");
+        assert_eq!(cnf.to_string(), "Clause(x0 | x1 | x2 | x3 | x4 | x5)");
 
         // variables with double-digit indices: (x10 | !x15) & (x99)
         let cnf = Cnf(vec![
@@ -674,7 +674,7 @@ mod tests {
                 neg: false,
             }]),
         ]);
-        assert_eq!(cnf.to_string(), "(x10 | !x15) & (x99)");
+        assert_eq!(cnf.to_string(), "Clause(x10 | !x15) & Clause(x99)");
 
         // empty clause (edge case)
         let cnf = Cnf(vec![Clause(vec![])]);

@@ -325,7 +325,7 @@ pub fn simplified_cnf(
     target: u8,
     debug: &ExpDebugCtx,
 ) -> Cnf {
-    let cnf_ctx = debug.child(format!("CNF_target{}", target));
+    let cnf_ctx = debug.child(format!("cnf_target{}", target));
 
     let positives_set: HashSet<State> = positives.iter().copied().collect();
     let false_states: Vec<State> = universe
@@ -334,44 +334,53 @@ pub fn simplified_cnf(
         .filter(|s| !positives_set.contains(s))
         .collect();
 
-    if false_states.is_empty() {
-        cnf_ctx.vlog(1, "No false states - empty CNF");
-        return Cnf(Vec::new());
+    {
+        if false_states.is_empty() {
+            cnf_ctx.vlog(1, "no false states - empty cnf");
+            return Cnf(Vec::new());
+        }
+
+        let pos_ctx = cnf_ctx.child(format!("positive_samples_n{}", positives.len()));
+        positives
+            .iter()
+            .for_each(|p| pos_ctx.vlog(2, format!("{}", p)));
+
+        let neg_ctx = cnf_ctx.child(format!("negative_samples_n{}", false_states.len()));
+        false_states
+            .iter()
+            .for_each(|s| neg_ctx.vlog(4, format!("{}", s)));
     }
 
-    // Positive samples section
-    let pos_ctx = cnf_ctx.child(format!("PositiveSamples_n{}", positives.len()));
-    positives.iter().for_each(|p| pos_ctx.vlog(2, format!("{}", p)));
-
-    // Negative samples section
-    let neg_ctx = cnf_ctx.child(format!("NegativeSamples_n{}", false_states.len()));
-    false_states
-        .iter()
-        .for_each(|s| neg_ctx.vlog(4, format!("{}", s)));
-
-    // Prime implicants section
     let primes = qm_prime_implicants(&false_states);
-    let primes_ctx = cnf_ctx.child(format!("PrimeImplicants_n{}", primes.len()));
-    primes.iter().for_each(|p| primes_ctx.vlog(4, format!("{}", p)));
 
-    // Implicant selection and clause generation
+    {
+        let primes_ctx = cnf_ctx.child(format!("prime_implicants_n{}", primes.len()));
+        primes
+            .iter()
+            .for_each(|p| primes_ctx.vlog(4, format!("{}", p)));
+    }
+
     let implicants = select_implicants(&false_states, &primes);
     let mut clauses: Vec<Clause> = implicants.clone().into_iter().map(term_to_clause).collect();
 
-    let impl_ctx = cnf_ctx.child(format!(
-        "ImplicantToClauses_impl{}_clauses{}",
-        implicants.len(),
-        clauses.len()
-    ));
-    assert_eq!(implicants.len(), clauses.len());
-    for idx in 0..clauses.len() {
-        impl_ctx.vlog(2, format!("{} -> {}", implicants[idx], clauses[idx]));
+    {
+        let impl_ctx = cnf_ctx.child(format!(
+            "implicant_to_clauses_impl{}_clauses{}",
+            implicants.len(),
+            clauses.len()
+        ));
+        for idx in 0..clauses.len() {
+            impl_ctx.vlog(2, format!("{} -> {}", implicants[idx], clauses[idx]));
+        }
     }
 
-    // Target filtering
     clauses.retain(|clause| clause.literals().iter().any(|lit| lit.var == target));
-    let filtered_ctx = cnf_ctx.child(format!("TargetFiltered_n{}", clauses.len()));
-    clauses.iter().for_each(|c| filtered_ctx.vlog(2, format!("{}", c)));
+    {
+        let filtered_ctx = cnf_ctx.child(format!("target_filtered_n{}", clauses.len()));
+        clauses
+            .iter()
+            .for_each(|c| filtered_ctx.vlog(2, format!("{}", c)));
+    }
 
     Cnf(clauses)
 }

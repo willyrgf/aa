@@ -42,7 +42,7 @@ impl Default for ExpConfig {
     }
 }
 
-// complete context for a single experiment run (one task, one sample size k)
+/// complete context for a single experiment run (one task, one sample size k)
 #[derive(Clone, Debug)]
 pub struct ExpCtx {
     pub task: Task,
@@ -68,7 +68,7 @@ impl fmt::Display for ExpCtx {
     }
 }
 
-// generate all experiment contexts for the given tasks and sample sizes
+/// generate all experiment contexts for the given tasks and sample sizes
 pub fn generate_experiment_contexts(
     tasks: &[Task],
     sample_sizes: &[usize],
@@ -130,7 +130,7 @@ fn policy_to_trial_result(
     })
 }
 
-// result of executing an experiment context
+/// result of executing an experiment context
 #[derive(Debug)]
 pub struct ExpResult {
     pub task_label: String,
@@ -139,7 +139,7 @@ pub struct ExpResult {
     pub simplicity_stats: Stats,
 }
 
-// execute a single experiment context in parallel
+/// execute a single experiment context in parallel
 pub fn execute_experiment(ctx: &ExpCtx, debug: &ExpDebugCtx) -> ExpResult {
     let num_threads = ctx.config.num_threads;
 
@@ -167,7 +167,7 @@ pub fn execute_experiment(ctx: &ExpCtx, debug: &ExpDebugCtx) -> ExpResult {
             let mut local_s_stats = Stats::default();
 
             for (trial_idx, trial) in chunk.iter().enumerate() {
-                let trial_debug = thread_debug.child(format!("Trial_{}", trial_idx));
+                let trial_debug = thread_debug.child(format!("trial_{}", trial_idx));
 
                 let base_cnf = simplified_cnf(&trial.dk, &universe, trial.target, &trial_debug);
 
@@ -266,7 +266,7 @@ pub fn run_experiments(tasks: &[Task], sample_sizes: &[usize], trials_per_sample
                 }
                 _ => {
                     // level 3+: full detailed output
-                    eprintln!("{}", exp_debug.render(level, 4));
+                    eprintln!("{}", exp_debug.render(level, -1));
                 }
             }
         }

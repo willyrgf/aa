@@ -525,8 +525,8 @@ mod tests {
         let score = score_cnf(&cnf, Objective::Simplicity, &universe);
 
         // simplicity is negative description length
-        // "(x0)" has 4 characters, so score should be -4
-        assert_eq!(score, -4);
+        // "Clause(x0)" has 10 characters, so score should be -10
+        assert_eq!(score, -10);
     }
 
     #[test]
