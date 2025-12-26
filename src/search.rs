@@ -5,6 +5,7 @@ use std::{
 
 use crate::{
     cnf::{Cnf, is_sufficient, weakness},
+    debug_ctx::ExpDebugCtx,
     state::State,
 };
 
@@ -227,7 +228,10 @@ pub fn best_first_policy(
     objective: Objective,
     depth_limit: usize,
     time_limit_ms: u128,
+    debug: &ExpDebugCtx,
 ) -> (Option<Cnf>, bool) {
+    let bfp_ctx = debug.child(format!("bfp_cnf{}_dn{}", full_cnf.len(), decisions.len()));
+
     let n = full_cnf.len();
 
     if n == 0 {
@@ -242,7 +246,15 @@ pub fn best_first_policy(
         objective,
     };
 
+    let necessary_c_ctx = bfp_ctx.child(format!("necessary_clauses_target{}", target));
     let necessary_idxs = necessary_clauses(full_cnf, universe, decisions, target);
+    {
+        let necessary_clauses = cnf_from_indices(full_cnf, &necessary_idxs);
+        necessary_clauses
+            .clauses()
+            .iter()
+            .for_each(|nc| necessary_c_ctx.vlog(2, format!("{}", nc)));
+    }
 
     if necessary_idxs.len() == n {
         return if is_sufficient(full_cnf, universe, decisions, target) {
@@ -787,6 +799,7 @@ mod tests {
         let cnf = Cnf(vec![]);
         let universe = vec![test_state(0)];
         let decisions = vec![test_state(0)];
+        let debug = ExpDebugCtx::new("test");
 
         let (result, timed_out) = best_first_policy(
             &cnf,
@@ -796,6 +809,7 @@ mod tests {
             Objective::Weakness,
             10,
             10000,
+            &debug,
         );
 
         assert!(result.is_some());
@@ -808,6 +822,7 @@ mod tests {
         let cnf = Cnf(vec![Clause(vec![Literal { var: 0, neg: false }])]);
         let universe = vec![test_state(0b00), test_state(0b01)];
         let decisions = vec![test_state(0b01)];
+        let debug = ExpDebugCtx::new("test");
 
         let (result, timed_out) = best_first_policy(
             &cnf,
@@ -817,6 +832,7 @@ mod tests {
             Objective::Weakness,
             10,
             10000,
+            &debug,
         );
 
         assert!(result.is_some());
@@ -840,6 +856,7 @@ mod tests {
             test_state(0b11),
         ];
         let decisions = vec![test_state(0b11)];
+        let debug = ExpDebugCtx::new("test");
 
         let (result, timed_out) = best_first_policy(
             &cnf,
@@ -849,6 +866,7 @@ mod tests {
             Objective::Weakness,
             10,
             10000,
+            &debug,
         );
 
         assert!(result.is_some());
@@ -870,6 +888,7 @@ mod tests {
             test_state(0b11),
         ];
         let decisions = vec![test_state(0b11)]; // needs both bits set
+        let debug = ExpDebugCtx::new("test");
 
         let (result, timed_out) = best_first_policy(
             &cnf,
@@ -879,6 +898,7 @@ mod tests {
             Objective::Weakness,
             10,
             10000,
+            &debug,
         );
 
         // should return None since no subset of clauses is sufficient
@@ -894,6 +914,7 @@ mod tests {
         ]);
         let universe = vec![test_state(0b00), test_state(0b01)];
         let decisions = vec![test_state(0b01)];
+        let debug = ExpDebugCtx::new("test");
 
         let (result, timed_out) = best_first_policy(
             &cnf,
@@ -903,6 +924,7 @@ mod tests {
             Objective::Simplicity,
             10,
             10000,
+            &debug,
         );
 
         assert!(result.is_some());

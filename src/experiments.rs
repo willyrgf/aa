@@ -179,6 +179,7 @@ pub fn execute_experiment(ctx: &ExpCtx, debug: &ExpDebugCtx) -> ExpResult {
                     Objective::Weakness,
                     depth_limit,
                     timeout_ms as u128,
+                    &trial_debug,
                 );
                 let w_result = policy_to_trial_result(w_policy, &universe, &dn, trial.target);
                 local_w_stats.update(w_result, w_timeout);
@@ -191,6 +192,7 @@ pub fn execute_experiment(ctx: &ExpCtx, debug: &ExpDebugCtx) -> ExpResult {
                     Objective::Simplicity,
                     depth_limit,
                     timeout_ms as u128,
+                    &trial_debug,
                 );
                 let s_result = policy_to_trial_result(s_policy, &universe, &dn, trial.target);
                 local_s_stats.update(s_result, s_timeout);

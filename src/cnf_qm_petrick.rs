@@ -325,7 +325,7 @@ pub fn simplified_cnf(
     target: u8,
     debug: &ExpDebugCtx,
 ) -> Cnf {
-    let cnf_ctx = debug.child(format!("cnf_target{}", target));
+    let cnf_ctx = debug.child(format!("cnf_universe{}_target{}", universe.len(), target));
 
     let positives_set: HashSet<State> = positives.iter().copied().collect();
     let false_states: Vec<State> = universe
