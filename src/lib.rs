@@ -1,6 +1,7 @@
 #[macro_use]
 pub mod verbosity;
 
+pub mod debug_ctx;
 pub mod cnf;
 pub mod cnf_qm_petrick;
 pub mod dataset;

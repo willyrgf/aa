@@ -8,6 +8,7 @@ use crate::{
     cnf::{Cnf, accuracy_on_decision, weakness},
     cnf_qm_petrick::simplified_cnf,
     dataset::{generate_truth_decision_table, sample_decision_table_k},
+    debug_ctx::ExpDebugCtx,
     rng::SplitMix64,
     search::{Objective, best_first_policy, necessary_clauses},
     state::State,
@@ -139,7 +140,7 @@ pub struct ExpResult {
 }
 
 // execute a single experiment context in parallel
-pub fn execute_experiment(ctx: &ExpCtx) -> ExpResult {
+pub fn execute_experiment(ctx: &ExpCtx, debug: &ExpDebugCtx) -> ExpResult {
     let num_threads = ctx.config.num_threads;
 
     let universe = Arc::new(ctx.universe.clone());
@@ -150,7 +151,7 @@ pub fn execute_experiment(ctx: &ExpCtx) -> ExpResult {
     let chunk_size = (ctx.trials.len() + num_threads - 1) / num_threads;
     let mut handles = vec![];
 
-    for chunk in ctx.trials.chunks(chunk_size) {
+    for (thread_idx, chunk) in ctx.trials.chunks(chunk_size).enumerate() {
         let chunk = chunk.to_vec();
         let universe = Arc::clone(&universe);
         let dn = Arc::clone(&dn);
@@ -159,12 +160,16 @@ pub fn execute_experiment(ctx: &ExpCtx) -> ExpResult {
         let depth_limit = ctx.config.depth_limit;
         let timeout_ms = ctx.config.timeout_ms;
 
+        let thread_debug = debug.child(format!("Thread_{}", thread_idx));
+
         let handle = thread::spawn(move || {
             let mut local_w_stats = Stats::default();
             let mut local_s_stats = Stats::default();
 
-            for trial in chunk {
-                let base_cnf = simplified_cnf(&trial.dk, &universe, trial.target);
+            for (trial_idx, trial) in chunk.iter().enumerate() {
+                let trial_debug = thread_debug.child(format!("Trial_{}", trial_idx));
+
+                let base_cnf = simplified_cnf(&trial.dk, &universe, trial.target, &trial_debug);
 
                 let (w_policy, w_timeout) = best_first_policy(
                     &base_cnf,
@@ -223,23 +228,53 @@ pub fn run_experiments(tasks: &[Task], sample_sizes: &[usize], trials_per_sample
     println!("Trials per k : {}", trials_per_sample);
     println!("Threads      : {}", config.num_threads);
 
+    let root_debug = ExpDebugCtx::new("ExperimentRun");
+
     let contexts = generate_experiment_contexts(tasks, sample_sizes, trials_per_sample, config);
-    vprintln!(1, "# Exp Ctx    : {}", contexts.len());
-    contexts.iter().for_each(|ctx| vprintln!(3, "{}", ctx));
+    root_debug.vlog(1, format!("# Exp Ctx    : {}", contexts.len()));
 
     let mut current_task = String::new();
     for ctx in &contexts {
+        let exp_debug = root_debug.child(format!("Task_{}_k{}", ctx.task_label, ctx.sample_size));
+        exp_debug.vlog(3, format!("{}", ctx));
+
         if ctx.task_label != current_task {
             current_task = ctx.task_label.clone();
             println!("\n-- Task: {} --", ctx.task_label);
             println!("D_n size     : {}", ctx.dn.len());
         }
 
-        let result = execute_experiment(ctx);
+        let result = execute_experiment(ctx, &exp_debug);
 
         println!("\n=== |D_k| = {} ===", result.sample_size);
         print_policy_stats("w-max", &result.weakness_stats, universe_size as f32);
         print_policy_stats("simp-max", &result.simplicity_stats, universe_size as f32);
+
+        // render incrementally after each experiment completes
+        if crate::verbosity::level() > 0 {
+            let level = crate::verbosity::level();
+            eprintln!("\n[DEBUG] Experiment completed:");
+
+            match level {
+                1 => {
+                    // level 1: just summary statistics
+                    eprintln!("{}", exp_debug.render_summary(4));
+                }
+                2 => {
+                    // level 2: summary + sampled output (first 3, last 2 lines per section)
+                    eprintln!("{}", exp_debug.render_sampled(2, 4, 3, 2));
+                }
+                _ => {
+                    // level 3+: full detailed output
+                    eprintln!("{}", exp_debug.render(level, 4));
+                }
+            }
+        }
+
         break;
     }
+
+    vprintln!(1, "\n[DEBUG] === FINAL SUMMARY ===");
+    vprintln!(1, "Total lines logged: {}", root_debug.total_lines());
+    vprintln!(1, "Tree max depth: {}", root_debug.max_depth());
 }
