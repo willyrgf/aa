@@ -849,11 +849,13 @@ mod tests {
 
     #[test]
     fn test_simplified_cnf_empty_false_states() {
+        use crate::debug_ctx::ExpDebugCtx;
         // all states are positive (no false states)
         let universe = vec![State(0b00), State(0b01), State(0b10), State(0b11)];
         let positives = universe.clone();
+        let debug = ExpDebugCtx::new("test_simplified_cnf_empty_false_states");
 
-        let cnf = simplified_cnf(&positives, &universe, 0);
+        let cnf = simplified_cnf(&positives, &universe, 0, &debug);
 
         // should return empty CNF
         assert_eq!(cnf.clauses().len(), 0);
@@ -861,12 +863,14 @@ mod tests {
 
     #[test]
     fn test_simplified_cnf_basic() {
+        use crate::debug_ctx::ExpDebugCtx;
         // simple example with some false states
         let universe = vec![State(0b00), State(0b01), State(0b10), State(0b11)];
         let positives = vec![State(0b10), State(0b11)];
         let target = 1;
+        let debug = ExpDebugCtx::new("test_simplified_cnf_basic");
 
-        let cnf = simplified_cnf(&positives, &universe, target);
+        let cnf = simplified_cnf(&positives, &universe, target, &debug);
 
         // should generate a CNF that covers the false states
         // and only includes clauses with the target variable
@@ -877,6 +881,7 @@ mod tests {
 
     #[test]
     fn test_simplified_cnf_filters_target_var() {
+        use crate::debug_ctx::ExpDebugCtx;
         // test that only clauses with target variable are included
         let universe = vec![
             State(0b000),
@@ -890,8 +895,9 @@ mod tests {
         ];
         let positives = vec![State(0b111)];
         let target = 2;
+        let debug = ExpDebugCtx::new("test_simplified_cnf_filters_target_var");
 
-        let cnf = simplified_cnf(&positives, &universe, target);
+        let cnf = simplified_cnf(&positives, &universe, target, &debug);
 
         // all clauses should mention the target variable
         for clause in &cnf.clauses() {

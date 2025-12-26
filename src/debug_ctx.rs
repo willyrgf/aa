@@ -81,35 +81,118 @@ impl ExpDebugCtx {
             return;
         }
 
-        // Render label with indentation and elapsed time
+        // Render label with indentation
         let indent = "  ".repeat(current_depth);
-        let elapsed = self.created_at.elapsed().as_secs_f64();
-        output.push_str(&format!("{}[{}] (t={:.2}s)\n", indent, inner.label, elapsed));
 
-        // Render lines that meet verbosity threshold
+        // Calculate display time: duration for this context (creation to last activity)
+        let last_time = self.get_end_time(&inner);
+        let display_time_ms = last_time.duration_since(self.created_at).as_millis();
+
+        output.push_str(&format!(
+            "{}[{}] (t={}ms)\n",
+            indent, inner.label, display_time_ms
+        ));
+
+        // Render lines that meet verbosity threshold (time relative to this context creation)
         for line in &inner.lines {
             if line.level <= max_level {
-                let line_elapsed = line.timestamp.duration_since(self.created_at).as_secs_f64();
+                let line_time_ms = line.timestamp.duration_since(self.created_at).as_millis();
                 output.push_str(&format!(
-                    "{}  +{:.2}s: {}\n",
-                    indent, line_elapsed, line.text
+                    "{}  +{}ms: {}\n",
+                    indent, line_time_ms, line.text
                 ));
             }
         }
 
-        // Render children
+        // Render children (pass this context's creation time as parent_time)
         if current_depth < max_depth {
             for child in &inner.children {
                 let child_inner = child.inner.lock().unwrap();
-                child.render_recursive(
+                child.render_recursive_with_parent(
                     &child_inner,
                     max_level,
                     max_depth,
                     current_depth + 1,
                     output,
+                    self.created_at, // Pass parent's creation time
                 );
             }
         }
+    }
+
+    fn render_recursive_with_parent(
+        &self,
+        inner: &ExpDebugCtxInner,
+        max_level: u8,
+        max_depth: usize,
+        current_depth: usize,
+        output: &mut String,
+        _parent_time: Instant,
+    ) {
+        if current_depth > max_depth {
+            return;
+        }
+
+        let indent = "  ".repeat(current_depth);
+
+        // Show duration for this context (creation to last activity)
+        let last_time = self.get_end_time(&inner);
+        let display_time_ms = last_time.duration_since(self.created_at).as_millis();
+
+        output.push_str(&format!(
+            "{}[{}] (t={}ms)\n",
+            indent, inner.label, display_time_ms
+        ));
+
+        // Render lines that meet verbosity threshold (time relative to this context creation)
+        for line in &inner.lines {
+            if line.level <= max_level {
+                let line_time_ms = line.timestamp.duration_since(self.created_at).as_millis();
+                output.push_str(&format!(
+                    "{}  +{}ms: {}\n",
+                    indent, line_time_ms, line.text
+                ));
+            }
+        }
+
+        // Render children (pass this context's creation time as parent_time)
+        if current_depth < max_depth {
+            for child in &inner.children {
+                let child_inner = child.inner.lock().unwrap();
+                child.render_recursive_with_parent(
+                    &child_inner,
+                    max_level,
+                    max_depth,
+                    current_depth + 1,
+                    output,
+                    self.created_at,
+                );
+            }
+        }
+    }
+
+    /// Get the latest activity time in this context or any child
+    fn get_end_time(&self, inner: &ExpDebugCtxInner) -> Instant {
+        // Start with the last log line in this context, or creation time if no logs
+        let own_end = inner
+            .lines
+            .last()
+            .map(|line| line.timestamp)
+            .unwrap_or(self.created_at);
+
+        // Check all children for their end times
+        let children_end = inner
+            .children
+            .iter()
+            .map(|child| {
+                let child_inner = child.inner.lock().unwrap();
+                child.get_end_time(&child_inner)
+            })
+            .max()
+            .unwrap_or(self.created_at);
+
+        // Return the maximum
+        own_end.max(children_end)
     }
 
     /// Get summary statistics for this context
@@ -150,7 +233,8 @@ impl ExpDebugCtx {
     pub fn render_summary(&self, max_depth: usize) -> String {
         let inner = self.inner.lock().unwrap();
         let mut output = String::new();
-        self.render_summary_recursive(&inner, max_depth, 0, &mut output);
+        let root_time = self.created_at;
+        self.render_summary_recursive(&inner, max_depth, 0, &mut output, root_time);
         output
     }
 
@@ -160,27 +244,38 @@ impl ExpDebugCtx {
         max_depth: usize,
         current_depth: usize,
         output: &mut String,
+        root_time: Instant,
     ) {
         if current_depth > max_depth {
             return;
         }
 
         let indent = "  ".repeat(current_depth);
-        let elapsed = self.created_at.elapsed().as_secs_f64();
+
+        // All contexts show their duration (creation to last activity)
+        let last_time = self.get_end_time(&inner);
+        let display_time_ms = last_time.duration_since(self.created_at).as_millis();
+
         let summary = format!(
-            "{}[{}] ({} lines, {} children, {:.2}s)\n",
+            "{}[{}] ({} lines, {} children, t={}ms)\n",
             indent,
             inner.label,
             inner.lines.len(),
             inner.children.len(),
-            elapsed
+            display_time_ms
         );
         output.push_str(&summary);
 
         if current_depth < max_depth {
             for child in &inner.children {
                 let child_inner = child.inner.lock().unwrap();
-                child.render_summary_recursive(&child_inner, max_depth, current_depth + 1, output);
+                child.render_summary_recursive(
+                    &child_inner,
+                    max_depth,
+                    current_depth + 1,
+                    output,
+                    root_time, // Keep passing root_time for consistency, though not used
+                );
             }
         }
     }
@@ -189,7 +284,8 @@ impl ExpDebugCtx {
     pub fn render_sampled(&self, max_level: u8, max_depth: usize, first: usize, last: usize) -> String {
         let inner = self.inner.lock().unwrap();
         let mut output = String::new();
-        self.render_sampled_recursive(&inner, max_level, max_depth, first, last, 0, &mut output);
+        let root_time = self.created_at;
+        self.render_sampled_recursive(&inner, max_level, max_depth, first, last, 0, &mut output, root_time);
         output
     }
 
@@ -202,14 +298,22 @@ impl ExpDebugCtx {
         last: usize,
         current_depth: usize,
         output: &mut String,
+        root_time: Instant,
     ) {
         if current_depth > max_depth {
             return;
         }
 
         let indent = "  ".repeat(current_depth);
-        let elapsed = self.created_at.elapsed().as_secs_f64();
-        output.push_str(&format!("{}[{}] (t={:.2}s)\n", indent, inner.label, elapsed));
+
+        // All contexts show their duration (creation to last activity)
+        let last_time = self.get_end_time(&inner);
+        let display_time_ms = last_time.duration_since(self.created_at).as_millis();
+
+        output.push_str(&format!(
+            "{}[{}] (t={}ms)\n",
+            indent, inner.label, display_time_ms
+        ));
 
         // Filter lines by level
         let visible_lines: Vec<_> = inner
@@ -224,19 +328,19 @@ impl ExpDebugCtx {
         } else if total <= first + last {
             // Show all lines
             for line in visible_lines {
-                let line_elapsed = line.timestamp.duration_since(self.created_at).as_secs_f64();
+                let line_time_ms = line.timestamp.duration_since(self.created_at).as_millis();
                 output.push_str(&format!(
-                    "{}  +{:.2}s: {}\n",
-                    indent, line_elapsed, line.text
+                    "{}  +{}ms: {}\n",
+                    indent, line_time_ms, line.text
                 ));
             }
         } else {
             // Show first N lines
             for line in visible_lines.iter().take(first) {
-                let line_elapsed = line.timestamp.duration_since(self.created_at).as_secs_f64();
+                let line_time_ms = line.timestamp.duration_since(self.created_at).as_millis();
                 output.push_str(&format!(
-                    "{}  +{:.2}s: {}\n",
-                    indent, line_elapsed, line.text
+                    "{}  +{}ms: {}\n",
+                    indent, line_time_ms, line.text
                 ));
             }
 
@@ -246,10 +350,10 @@ impl ExpDebugCtx {
 
             // Show last M lines
             for line in visible_lines.iter().skip(total - last) {
-                let line_elapsed = line.timestamp.duration_since(self.created_at).as_secs_f64();
+                let line_time_ms = line.timestamp.duration_since(self.created_at).as_millis();
                 output.push_str(&format!(
-                    "{}  +{:.2}s: {}\n",
-                    indent, line_elapsed, line.text
+                    "{}  +{}ms: {}\n",
+                    indent, line_time_ms, line.text
                 ));
             }
         }
@@ -265,6 +369,7 @@ impl ExpDebugCtx {
                     last,
                     current_depth + 1,
                     output,
+                    root_time, // Keep passing root_time for consistency
                 );
             }
         }
